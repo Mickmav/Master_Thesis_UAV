@@ -57,12 +57,14 @@ def read_input():
     # This parameter impact the algorithm used to solve the TSP instance
     # 0 = SA / 1 = GA / 2 = SLS / 3 = concorde/ 4 = fast_tsp / 5 = tsp_solver2
     # / 6 = solve_tsp_simulated_annealing/ 7 = solve_tsp_local_search
-    parser.add_argument("--algo", type=int, default=-5, help="The optimisation algorithm you want to use (value "
-                                                             "between 0 and 7)"
-                                                             "\n 0 = SA / 1 = GA / 2 = SLS / 3 = concorde/ 4 = "
-                                                             "fast_tsp / 5 = tsp_solver2 / "
+    parser.add_argument("--algo", type=int, default=-5, help="The optimisation algorithm you want to use (values "
+                                                             "depend of the problem you want to solve)"
+                                                             "\n Problem = 1: 0 = SA / 1 = GA / 2 = SLS / 3 = concorde/"
+                                                             "4 = fast_tsp / 5 = tsp_solver2 / "
                                                              "6 = solve_tsp_simulated_annealing /"
-                                                             " 7 = solve_tsp_local_search")
+                                                             " 7 = solve_tsp_local_search"
+                                                             "\n Problem = 0 : 0 = SA / 1 = GA / 2 = SLS /"
+                                                             " 3 = tsp_to_dubins")
 
     # This parameter impact the coverage radius of the UAV
     parser.add_argument("--radius", type=int, default=-5,
@@ -91,7 +93,7 @@ if __name__ == '__main__':
     #  --------------------- Retrieve inputs ---------------------------
 
     manual_input, problem, choice_of_vertex, \
-        choice_of_obstacles, type_of_optimisation, radius, turning_radius = read_input()
+    choice_of_obstacles, type_of_optimisation, radius, turning_radius = read_input()
 
     # Get the current date and time
     current_time = time.localtime()
@@ -116,7 +118,6 @@ if __name__ == '__main__':
     earth_vertices = [[]]
 
     if manual_input == "n" or manual_input == "no":
-        # TODO : add dubins path into the possibilities
         polygon_file = input_directory + "polygon.csv"
         config_file = input_directory + "config.ini"
         obstacles_directory = input_directory + "obstacles"
@@ -162,8 +163,8 @@ if __name__ == '__main__':
 
         if problem == -5:
             input_error = 1
-            print("If the configuration is manual you have to select the type of problem to solve (value between 0 or "
-                  "1)")
+            print("If the configuration is manual you have to select the type of problem to solve"
+                  " (Fixed-wings UAV or multi-copter)\n 0 = Fixed-wings UAV / 1 =  multi-copter")
         if choice_of_vertex == -5:
             input_error = 1
             print("If the configuration is manual you have to select an area to cover (value between 0 and 5)")
@@ -188,16 +189,24 @@ if __name__ == '__main__':
 
         if not 0 <= problem <= 1:
             input_error = 1
+            print("Problem must be either 0 or 1 (Fixed-wings UAV or multi-copter)\n"
+                  " 0 = Fixed-wings UAV / 1 =  multi-copter")
         if not 0 <= choice_of_vertex <= 5:
             input_error = 1
             print("polygon: between 0 and 5 ")
         if choice_of_obstacles != -1 and choice_of_obstacles != 0:
             input_error = 1
             print("obstacle : -1 for no obstacle, 0 for some obstacles")
-        if not 0 <= type_of_optimisation <= 7:
+        if not 0 <= type_of_optimisation <= 7 and problem == 1:
             input_error = 1
-            print("optimisation algorithm: between 0 and 5  (0 = SA / 1 = GA / 2 = SLS / 3 = concorde / 4 = "
-                  "fast_tsp / 5 = tsp_solver2 / 6 = solve_tsp_simulated_annealing/ 7 = solve_tsp_local_search")
+            print("optimisation algorithm:\n"
+                  "Problem = 1: between 0 and 7  (0 = SA / 1 = GA / 2 = SLS / 3 = concorde / 4 = "
+                  "fast_tsp / 5 = tsp_solver2 / 6 = solve_tsp_simulated_annealing/ 7 = solve_tsp_local_search)")
+        if not 0 <= type_of_optimisation <= 3 and problem == 1:
+            input_error = 1
+            print("optimisation algorithm:\n"
+                  "Problem = 0 : between 0 and 3 ((0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins)")
+            # TODO : don't forget to add new methods
         if radius <= 0:
             input_error = 1
             print("Radius must be a strictly positive integer ( value depend of your polygon)")
@@ -213,16 +222,20 @@ if __name__ == '__main__':
                   "-1 --algo 3 --radius 10")
             exit(1)
 
-        if type_of_optimisation == 3:
-            method = "concorde"
-        elif type_of_optimisation == 4:
-            method = "fast_tsp"
-        elif type_of_optimisation == 5:
-            method = "tsp_solver2"
-        elif type_of_optimisation == 6:
-            method = "solve_tsp_simulated_annealing"
-        elif type_of_optimisation == 7:
-            method = "solve_tsp_local_search"
+        if problem == 1:
+            if type_of_optimisation == 3:
+                method = "concorde"
+            elif type_of_optimisation == 4:
+                method = "fast_tsp"
+            elif type_of_optimisation == 5:
+                method = "tsp_solver2"
+            elif type_of_optimisation == 6:
+                method = "solve_tsp_simulated_annealing"
+            elif type_of_optimisation == 7:
+                method = "solve_tsp_local_search"
+        if problem == 0:
+            if type_of_optimisation == 3:
+                method = "tsp_to_dubins"
 
         # This parameter is used to let the program know which kind of coordinates it receive
         # True only if geodetic coordinates
