@@ -2,6 +2,8 @@ import random
 import math
 import subprocess
 import json
+import dubins
+import numpy as np
 
 
 def cpp_opti(path, matrix, type_of_optimisation, cpp_executable_path):
@@ -54,21 +56,151 @@ def calculate_cost(path, matrix):
     return cost
 
 
-def optimise(path, matrix, type_of_optimisation=0):
+# Function to compute headings between points
+def compute_headings(points, order):
+    headings = []
+    size = len(order)
+    for i in range(size):
+        p1 = points[order[i]]
+        p2 = points[order[(i + 1) % size]]
+
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+
+        heading = np.arctan2(dy, dx)
+        headings.append(heading)
+
+    return headings
+
+
+# Function to compute headings between points
+def compute_headings_2(points, order):
+    headings = []
+    size = len(order)
+    for i in range(size):
+        p0 = points[order[(i - 1) % size]]
+        p1 = points[order[i]]
+        p2 = points[order[(i + 1) % size]]
+
+        # Vectors from p0 to p1 and p1 to p2
+        v1 = np.array([p1[0] - p0[0], p1[1] - p0[1]], dtype=np.float64)
+        v2 = np.array([p2[0] - p1[0], p2[1] - p1[1]], dtype=np.float64)
+
+        # Normalize vectors
+        v1 /= np.linalg.norm(v1)
+        v2 /= np.linalg.norm(v2)
+
+        # Calculate the sum of vectors
+        v_sum = v1 + v2
+
+        if np.linalg.norm(v_sum) == 0:
+            # Handle the case where v1 and v2 are exact opposites
+            # print(f"Vectors v1 and v2 are opposites at index {i}: v1={v1}, v2={v2}")
+            heading = np.arctan2(v1[1], v1[0])  # Arbitrary choice: use the direction of v1
+        else:
+            # Calculate the bisector vector
+            bisector = v_sum / np.linalg.norm(v_sum)
+
+            # Calculate the heading angle
+            heading = np.arctan2(bisector[1], bisector[0])
+
+        headings.append(heading)
+
+    return headings
+
+
+# Function to compute Dubins paths and their total length
+def compute_dubins_paths_and_length(points, order, turning_radius):
+    """
+    Optimized function to compute only the total length of the Dubins paths
+    :param points: the x,y positions of all the points
+    :param order: the order in which the points are crossed
+    :param turning_radius: the tuning radius
+    :return: length of the path
+    """
+
+    # Compute headings
+    headings = compute_headings_2(points, order)
+
+    paths = []
+    total_length = 0.0
+
+    for i in range(len(order)):
+        idx_start = order[i]
+        idx_end = order[(i + 1) % len(order)]
+
+        # Start and end configurations with computed headings
+        start_point = (points[idx_start][0], points[idx_start][1], headings[i])
+        end_heading = headings[i + 1] if i + 1 < len(headings) else 0  # Use the next heading if available
+        end_point = (points[idx_end][0], points[idx_end][1], end_heading)
+
+        # Dubins path computation
+        path = dubins.shortest_path(start_point, end_point, turning_radius)
+        configurations, _ = path.sample_many(0.1)  # Sample points along the path
+        path_length = path.path_length()  # Get the length of the Dubins path
+
+        paths += configurations
+        total_length += path_length
+
+    return total_length, paths
+
+
+def compute_total_dubins_path_length(points, order, turning_radius):
+    """
+    Optimized function to compute only the total length of the Dubins paths
+    :param points: the x,y positions of all the points
+    :param order: the order in which the points are crossed
+    :param turning_radius: the tuning radius
+    :return: length of the path
+    """
+    # Compute headings
+    headings = compute_headings_2(points, order)
+
+    total_length = 0.0
+
+    for i in range(len(order)):
+        idx_start = order[i]
+        idx_end = order[(i + 1) % len(order)]
+
+        # Start and end configurations with computed headings
+        start_point = (points[idx_start][0], points[idx_start][1], headings[i])
+        end_heading = headings[i + 1] if i + 1 < len(headings) else 0  # Use the next heading if available
+        end_point = (points[idx_end][0], points[idx_end][1], end_heading)
+
+        # Dubins path computation
+        path = dubins.shortest_path(start_point, end_point, turning_radius)
+        path_length = path.path_length()  # Get the length of the Dubins path
+
+        total_length += path_length
+
+    return total_length
+
+
+def optimise_dubins(initial_solution, points, turning_radius, type_of_optimisation=0):
+    new_sol = []
+    if type_of_optimisation == 0:
+        new_sol = simulated_annealing(initial_solution,
+                                      lambda sol: compute_total_dubins_path_length(points, sol, turning_radius),
+                                      random_exchange)
+
+    return new_sol
+
+
+def optimise(initial_solution, matrix, type_of_optimisation=0):
     """
      Apply a given python algorithm to perform the optimisations functions
-    :param path: a given starting solution
+    :param initial_solution: a given starting solution
     :param matrix: a matrix of distance between the points
     :param type_of_optimisation: the type of optimisation need (0 = SA / 1 = GA / 2 = SLS)
     :return: The final solution
     """
     new_sol = []
     if type_of_optimisation == 0:
-        new_sol = simulated_annealing(path, matrix, 900, 0.009)
+        new_sol = simulated_annealing(initial_solution, lambda sol: calculate_cost(sol, matrix), random_exchange)
     if type_of_optimisation == 1:
-        new_sol = genetic_algorithm(len(path), matrix, 100)
+        new_sol = genetic_algorithm(len(initial_solution), matrix, 100)
     if type_of_optimisation == 2:
-        new_sol = simple_local_search(path, matrix)
+        new_sol = simple_local_search(initial_solution, matrix)
 
     print(calculate_cost(new_sol, matrix), new_sol)
     return new_sol
@@ -104,37 +236,40 @@ def random_exchange(solution):
     return new_sol
 
 
-def simulated_annealing(initial_solution, matrix, temperature=900, min_temperature=0.009):
+def acceptance_probability(cost_diff, temperature):
     """
-    Perform a simulated algorithm, that perform random modification on a solution and has a probability
-    (based on a variable called temperature) to accept worse solution to extend the search scope
-    :param initial_solution:
-    :param matrix: matrix of distance between points
+    Probability to accept worsening solution
+    :param cost_diff:
     :param temperature:
-    :param min_temperature: when temperature is to small stop the process
+    :return:
+    """
+    return math.exp(-cost_diff / temperature)
+
+
+def simulated_annealing(initial_solution, cost_function, perturbation_function, temperature=900, min_temperature=0.009):
+    """
+    Perform a simulated annealing algorithm that performs random modifications on a solution and has a probability
+    (based on a variable called temperature) to accept worse solutions to extend the search scope.
+    :param initial_solution: initial order of points to visit
+    :param cost_function: function to calculate the cost of a given solution
+    :param perturbation_function: function to generate a new solution by perturbing the current solution
+    :param temperature: starting temperature
+    :param min_temperature: when temperature is too small, stop the process
     :return: the best solution obtained
     """
-    def acceptance_probability(cost_diff, temperature):
-        """
-        Probability to accept worsening solution
-        :param cost_diff:
-        :param temperature:
-        :return:
-        """
-        return math.exp(-cost_diff / temperature)
     # Initialize the process
     cooling_rate = compute_cooling_rate(len(initial_solution))
     current_solution = initial_solution
     best_solution = initial_solution
-    best_cost = calculate_cost(best_solution, matrix)
+    best_cost = cost_function(best_solution)
 
     i = 0
     while temperature > min_temperature:
         # Modify the solution
-        new_solution = random_exchange(current_solution)  # Small random perturbation
+        new_solution = perturbation_function(current_solution)  # Small random perturbation
 
-        current_cost = calculate_cost(current_solution, matrix)
-        new_cost = calculate_cost(new_solution, matrix)
+        current_cost = cost_function(current_solution)
+        new_cost = cost_function(new_solution)
 
         # Verify the solution and accept if conditions are met
         if new_cost < current_cost or random.random() < acceptance_probability(new_cost - current_cost, temperature):
@@ -181,6 +316,7 @@ def find_best(initial_population, matrix, size_returning_list):
     :param size_returning_list: number of solution to return
     :return: the n better solution in a sorted list
     """
+
     def custom_key(solution):
         return calculate_cost(solution, matrix)
 

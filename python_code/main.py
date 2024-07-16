@@ -2,7 +2,7 @@ import argparse
 import os
 import shutil
 import time
-import numpy as np
+# import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -14,8 +14,7 @@ from tsp_solver.greedy import solve_tsp
 from python_tsp.heuristics import solve_tsp_simulated_annealing
 from python_tsp.heuristics import solve_tsp_local_search
 
-
-from Optimise import optimise, cpp_opti
+from Optimise import optimise, cpp_opti, compute_dubins_paths_and_length, optimise_dubins
 from Utils import create_dist_matrix, generate_points_inside_polygon, compute_true_distance, read_vertices, \
     read_config, create_grid, data_linewidth_plot, convert_vertices, convert_vertices_with_ref, \
     convert_relative_to_coordinates, create_pseudo_circle, read_many_vertices
@@ -23,10 +22,10 @@ from Utils import create_dist_matrix, generate_points_inside_polygon, compute_tr
 
 def solve_concorde(matrix):
     print(matrix)
-    problem = Problem.from_matrix(matrix)
+    problem_solver = Problem.from_matrix(matrix)
     solver = Concorde()
-    solution = solver.solve(problem)
-    # solution = run_concorde(problem)
+    solution = solver.solve(problem_solver)
+    # solution = run_concorde(problem_solver)
     print(f'Optimal tour: {solution.tour}')
     return solution.tour
 
@@ -36,6 +35,16 @@ def read_input():
     # This input will impact how the algorithm will proceed.
     # Either manually or by directly using some specified file in a directory
     parser.add_argument("--manual", help="Do you want manual configurations (y/n)")
+
+    # This parameter impact the nature of the problem to solve (either for Fixed-wings UAV or multi-copter)
+    parser.add_argument("--problem", type=int, default=-5,
+                        help="The nature of the problem to solve (Fixed-wings UAV or multi-copter)"
+                             "\n 0 = Fixed-wings UAV / 1 =  multi-copter")
+
+    # This parameter impact the specific turning radius of the fixed-wings UAV (only for Fixed-wings UAV)
+    parser.add_argument("--turning_radius", type=int, default=-5,
+                        help="The specific turning radius of the fixed-wings UAV (only useful in the fixed-wings "
+                             "problem)")
 
     # This parameter let the user choose the area he wants to cover
     parser.add_argument("--polygon", type=int, default=-5,
@@ -63,11 +72,14 @@ def read_input():
     if not (args.manual == "y" or args.manual == "yes" or args.manual == "n" or args.manual == "no"):
         print("--manual has only values y, yes, n, no")
         print("Usage :"
-              "\n -If not manual : python3 main.py --manual n  (all other argument are not read"
-              "\n -If manual: python3 main.py --manual y --polygon 0 --obstacles -1 --algo 3 --radius 10")
+              "\n -If not manual : python3 main.py --manual n  (all other argument are not read)"
+              "\n -If manual:"
+              "\n multi-copter: python3 main.py --manual y --problem 1 --polygon 0 --obstacles -1 --algo 3 --radius 10"
+              "\n fixed-wings: python3 main.py --manual y --problem 0 --turning_radius 10 --polygon 0 --obstacles -1 "
+              "--algo 3 --radius 10")
         exit(1)
 
-    return args.manual, args.polygon, args.obstacles, args.algo, args.radius
+    return args.manual, args.problem, args.polygon, args.obstacles, args.algo, args.radius, args.turning_radius
 
 
 # Different path for files or directories
@@ -78,7 +90,8 @@ input_directory = "../configuration/"
 if __name__ == '__main__':
     #  --------------------- Retrieve inputs ---------------------------
 
-    manual_input, choice_of_vertex, choice_of_obstacles, type_of_optimisation, radius = read_input()
+    manual_input, problem, choice_of_vertex, \
+        choice_of_obstacles, type_of_optimisation, radius, turning_radius = read_input()
 
     # Get the current date and time
     current_time = time.localtime()
@@ -97,7 +110,13 @@ if __name__ == '__main__':
     method = "cpp"
     # cpp / python / concorde / fast_tsp / tsp_solver2 / solve_tsp_simulated_annealing / solve_tsp_local_search
 
+    earth_coord = False
+    vertices = []
+    obstacles_coord = [[]]
+    earth_vertices = [[]]
+
     if manual_input == "n" or manual_input == "no":
+        # TODO : add dubins path into the possibilities
         polygon_file = input_directory + "polygon.csv"
         config_file = input_directory + "config.ini"
         obstacles_directory = input_directory + "obstacles"
@@ -137,6 +156,14 @@ if __name__ == '__main__':
 
     elif manual_input == "y" or manual_input == "yes":
         input_error = 0
+        fixed_wings = False
+        if problem == 0:
+            fixed_wings = True
+
+        if problem == -5:
+            input_error = 1
+            print("If the configuration is manual you have to select the type of problem to solve (value between 0 or "
+                  "1)")
         if choice_of_vertex == -5:
             input_error = 1
             print("If the configuration is manual you have to select an area to cover (value between 0 and 5)")
@@ -154,10 +181,13 @@ if __name__ == '__main__':
             input_error = 1
             print("If the configuration is manual you have to select a coverage radius (value depend of the area you "
                   "choose)")
-        if input_error == 1:
-            print("Usage example : python3 main.py --manual y --polygon 0 --obstacles -1 --algo 3 --radius 10")
-            exit(1)
+        if turning_radius == -5 and fixed_wings:
+            input_error = 1
+            print("If the configuration is manual you have to select a coverage radius (value depend of the area you "
+                  "choose)")
 
+        if not 0 <= problem <= 1:
+            input_error = 1
         if not 0 <= choice_of_vertex <= 5:
             input_error = 1
             print("polygon: between 0 and 5 ")
@@ -171,8 +201,16 @@ if __name__ == '__main__':
         if radius <= 0:
             input_error = 1
             print("Radius must be a strictly positive integer ( value depend of your polygon)")
+        if turning_radius <= 0 and fixed_wings:
+            input_error = 1
+            print("Turning radius must be a strictly positive integer (value depend of your polygon)")
+
         if input_error == 1:
-            print("Usage example : python3 main.py --manual y --polygon 0 --obstacles -1 --algo 3 --radius 10")
+            print("Usage example : "
+                  "\n multi-copter: python3 main.py --manual y --problem 1 --polygon 0 --obstacles -1 --algo 3 "
+                  "--radius 10 "
+                  "\n fixed-wings: python3 main.py --manual y --problem 0 --turning_radius 10 --polygon 0 --obstacles "
+                  "-1 --algo 3 --radius 10")
             exit(1)
 
         if type_of_optimisation == 3:
@@ -255,7 +293,7 @@ if __name__ == '__main__':
     if point_generation == "random":
         points = generate_points_inside_polygon(polygon, polygone_obstacles, int(diameter))
     elif point_generation == "systematic":
-        points = create_grid(polygon, polygone_obstacles, int(diameter*0.85))
+        points = create_grid(polygon, polygone_obstacles, int(diameter * 0.85))
     else:
         points = [[]]
     nb_points = len(points)
@@ -273,22 +311,27 @@ if __name__ == '__main__':
     print("Find optimized solution")
     # Record the start time
     optimisation_start_time = time.time()
+    if problem == 1:
+        if method == "cpp":
+            final_sol = cpp_opti(path, dist_matrix, type_of_optimisation, cpp_executable_path)
+            final_sol = cpp_opti(final_sol, dist_matrix, 2, cpp_executable_path)
+        elif method == "python":
+            final_sol = optimise(path, dist_matrix, type_of_optimisation)
+        elif method == "concorde":
+            final_sol = solve_concorde(dist_matrix)
+        elif method == "fast_tsp":
+            final_sol = fast_tsp.find_tour(dist_matrix)  # 2 seconds as defaults time limit value
+        elif method == "tsp_solver2":
+            final_sol = solve_tsp(dist_matrix)
+        elif method == "solve_tsp_simulated_annealing":
+            final_sol, distance = solve_tsp_simulated_annealing(dist_matrix)
+        elif method == "solve_tsp_local_search":
+            final_sol, distance = solve_tsp_local_search(dist_matrix)
 
-    if method == "cpp":
-        final_sol = cpp_opti(path, dist_matrix, type_of_optimisation, cpp_executable_path)
-        final_sol = cpp_opti(final_sol, dist_matrix, 2, cpp_executable_path)
-    elif method == "python":
-        final_sol = optimise(path, dist_matrix, type_of_optimisation)
-    elif method == "concorde":
-        final_sol = solve_concorde(dist_matrix)
-    elif method == "fast_tsp":
-        final_sol = fast_tsp.find_tour(dist_matrix)  # 2 seconds as defaults time limit value
-    elif method == "tsp_solver2":
-        final_sol = solve_tsp(dist_matrix)
-    elif method == "solve_tsp_simulated_annealing":
-        final_sol, distance = solve_tsp_simulated_annealing(dist_matrix)
-    elif method == "solve_tsp_local_search":
-        final_sol, distance = solve_tsp_local_search(dist_matrix)
+    if problem == 0:
+        # TODO : add function for dubins resolution
+        final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation=0)
+        pass
 
     # Record the end time
     optimisation_end_time = time.time()
@@ -303,10 +346,14 @@ if __name__ == '__main__':
     for i in final_sol:
         true_sol.append(list(points[i]))
     polygon2 = Polygon(true_sol)
-    print("Real distance : ", compute_true_distance(true_sol))
+    if problem == 1:
+        print("Real distance : ", compute_true_distance(true_sol))
+    if problem == 0:
+        pass
+
     # Transform relative coordinates back to geographical one if needed
+    real_path = []
     if earth_coord:
-        real_path = []
         for i in true_sol:
             real_path.append(convert_relative_to_coordinates(earth_vertices[0][0], earth_vertices[0][1], i))
         print("Path for the UAV in geographical coordinates : \n", real_path)
@@ -328,27 +375,74 @@ if __name__ == '__main__':
     else:
         shutil.copytree(input_directory, os.path.join(folder_path, 'initial_config'))
 
-    # Visualization using Matplotlib and save the image in the save_directory
-    with PdfPages(folder_path + "/" + "Coverage.pdf") as pdf:
-        plt.xlim(min_x, max_x)
-        plt.ylim(min_y, max_y)
-        # Plot the zone that is covered
-        data_linewidth_plot(*polygon2.exterior.xy, color='green', linewidth=diameter, alpha=0.5)
-        plt.plot(*polygon2.exterior.xy, color='green', linewidth=1)
-        # Plot the polygone
-        plt.plot(*polygon.exterior.xy, color='blue', linewidth=2)
-        # Plot the obstacles
-        for polygone_obstacle in polygone_obstacles:
-            plt.plot(*polygone_obstacle.exterior.xy, color='pink', linewidth=1)
-        # Plot the different points of the path
-        plt.scatter(points[:, 0], points[:, 1], color='red', s=1)
-        plt.axis('equal')
-        pdf.savefig()
-        plt.clf()
+    if problem == 1:
+        # Visualization using Matplotlib and save the image in the save_directory for multi-copter problem
+        with PdfPages(folder_path + "/" + "Coverage.pdf") as pdf:
+            plt.xlim(min_x, max_x)
+            plt.ylim(min_y, max_y)
+            # Plot the zone that is covered
+            data_linewidth_plot(*polygon2.exterior.xy, color='green', linewidth=diameter, alpha=0.5)
+            plt.plot(*polygon2.exterior.xy, color='green', linewidth=1)
+            # Plot the polygone
+            plt.plot(*polygon.exterior.xy, color='blue', linewidth=2)
+            # Plot the obstacles
+            for polygone_obstacle in polygone_obstacles:
+                plt.plot(*polygone_obstacle.exterior.xy, color='pink', linewidth=1)
+            # Plot the different points of the path
+            plt.scatter(points[:, 0], points[:, 1], color='red', s=1)
+            plt.axis('equal')
+            pdf.savefig()
+            plt.clf()
+
+    if problem == 0:
+        # Visualization using Matplotlib and save the image in the save_directory for fixed-wings problem
+        with PdfPages(folder_path + "/" + "Dubins_Coverage.pdf") as pdf:
+
+            # Compute Dubins paths and total length
+            Dubins_length, dubins_paths = compute_dubins_paths_and_length(points, final_sol, turning_radius)
+
+            print("Real Dubins distance : ", Dubins_length)
+
+            x_dubins = []
+            y_dubins = []
+            for point in dubins_paths:
+                xs, ys, _ = point
+                x_dubins.append(xs)
+                y_dubins.append(ys)
+
+            plt.xlim(min_x, max_x)
+            plt.ylim(min_y, max_y)
+            # Plot the zone that is covered
+            data_linewidth_plot(x_dubins, y_dubins, color='green', linewidth=diameter, alpha=0.5)
+            plt.plot(x_dubins, y_dubins, color='green', linewidth=1)
+            # Plot the polygone
+            plt.plot(*polygon.exterior.xy, color='blue', linewidth=2)
+            # Plot the obstacles
+            for polygone_obstacle in polygone_obstacles:
+                plt.plot(*polygone_obstacle.exterior.xy, color='pink', linewidth=1)
+            # Plot the different points of the path
+            plt.scatter(points[:, 0], points[:, 1], color='red', s=1)
+            plt.axis('equal')
+            pdf.savefig()
+            plt.clf()
 
     # Write all the outputs in a timestamp file
     with open(folder_path + "/" + "output.txt", 'w') as output_file:
-        print("Real distance : ", compute_true_distance(true_sol), file=output_file)
+        print("Polygone : ", choice_of_vertex, file=output_file)
+        print("Coverage radius : ", radius, file=output_file)
+        print("Optimisation algorithm : ", type_of_optimisation, file=output_file)
+        print("Method of optimisation : ", method, file=output_file)
+        print("Obstacles : ", choice_of_obstacles, file=output_file)
+        print("Start time : ", start_timestamp, file=output_file)
+        print("Total computation time : ", global_elapsed_time, file=output_file)
+        print("Optimisation computation time : ", optimisation_elapsed_time, file=output_file)
+        if problem == 0:
+            print("Turning_radius : ", turning_radius, file=output_file)
+            print("Real Dubins distance : ", Dubins_length, file=output_file)
+        if problem == 1:
+            print("Real distance : ", compute_true_distance(true_sol), file=output_file)
+        print("Total number of point to cover : ", nb_points, file=output_file)
+
         print("Path for the UAV in geographical coordinates : \n", list(real_path), file=output_file) \
             if earth_coord else print("Path for the UAV in relative coordinates : \n", list(true_sol), file=output_file)
         print("------------------------------------------------------------------------------", file=output_file)
@@ -358,12 +452,15 @@ if __name__ == '__main__':
         print("Start time : ", start_timestamp, file=output_file)
         print("Total computation time : ", global_elapsed_time, file=output_file)
         print("Optimisation computation time : ", optimisation_elapsed_time, file=output_file)
-        print("Real distance : ", compute_true_distance(true_sol), file=output_file)
+        if problem == 0:
+            print("Real Dubins distance : ", Dubins_length, file=output_file)
+        if problem == 1:
+            print("Real distance : ", compute_true_distance(true_sol), file=output_file)
         print("Total number of point to cover : ", nb_points, file=output_file)
         print("------------------------------------------------------------------------------", file=output_file)
         output_file.close()
 
-    with open( save_directory + "All_output_log.dat", 'a') as output_file:
+    with open(save_directory + "All_output_log.dat", 'a') as output_file:
         print("Polygone : ", choice_of_vertex, file=output_file)
         print("Coverage radius : ", radius, file=output_file)
         print("Optimisation algorithm : ", type_of_optimisation, file=output_file)
@@ -372,11 +469,14 @@ if __name__ == '__main__':
         print("Start time : ", start_timestamp, file=output_file)
         print("Total computation time : ", global_elapsed_time, file=output_file)
         print("Optimisation computation time : ", optimisation_elapsed_time, file=output_file)
-        print("Real distance : ", compute_true_distance(true_sol), file=output_file)
+        if problem == 0:
+            print("Turning_radius : ", turning_radius, file=output_file)
+            print("Real Dubins distance : ", Dubins_length, file=output_file)
+        if problem == 1:
+            print("Real distance : ", compute_true_distance(true_sol), file=output_file)
         print("Total number of point to cover : ", nb_points, file=output_file)
         print("------------------------------------------------------------------------------", file=output_file)
         output_file.close()
-
 
 # -----------------------LICENSE--------------
 """
