@@ -182,6 +182,13 @@ def optimise_dubins(initial_solution, points, turning_radius, type_of_optimisati
         new_sol = simulated_annealing(initial_solution,
                                       lambda sol: compute_total_dubins_path_length(points, sol, turning_radius),
                                       random_exchange)
+    if type_of_optimisation == 1:
+        new_sol = genetic_algorithm(len(initial_solution),
+                                    lambda sol: compute_total_dubins_path_length(points, sol, turning_radius),
+                                    100)
+    if type_of_optimisation == 2:
+        new_sol = simple_local_search(initial_solution,
+                                      lambda sol: compute_total_dubins_path_length(points, sol, turning_radius))
 
     return new_sol
 
@@ -198,9 +205,9 @@ def optimise(initial_solution, matrix, type_of_optimisation=0):
     if type_of_optimisation == 0:
         new_sol = simulated_annealing(initial_solution, lambda sol: calculate_cost(sol, matrix), random_exchange)
     if type_of_optimisation == 1:
-        new_sol = genetic_algorithm(len(initial_solution), matrix, 100)
+        new_sol = genetic_algorithm(len(initial_solution), lambda sol: calculate_cost(sol, matrix), 100)
     if type_of_optimisation == 2:
-        new_sol = simple_local_search(initial_solution, matrix)
+        new_sol = simple_local_search(initial_solution, lambda sol: calculate_cost(sol, matrix))
 
     print(calculate_cost(new_sol, matrix), new_sol)
     return new_sol
@@ -291,36 +298,25 @@ def simulated_annealing(initial_solution, cost_function, perturbation_function, 
     return best_solution
 
 
+# Genetic Algorithm Components
 def generate_random_solution(nb_points):
     """
     Generate a completely random solution
     :param nb_points: size of a solution
     :return: the random solution
     """
-    generated_solution = []
-    choices = [i for i in range(nb_points)]
-    for i in range(nb_points):
-        new_val = random.choice(choices)
-        generated_solution.append(new_val)
-        if len(choices) != 1:
-            choices.remove(new_val)
-
-    return generated_solution
+    return random.sample(range(nb_points), nb_points)
 
 
-def find_best(initial_population, matrix, size_returning_list):
+def find_best(initial_population, cost_function, size_returning_list):
     """
     Sort a list based on the cost function, then extract the "n best" solution
     :param initial_population: starting group of solution
-    :param matrix: matrix of distance between the point
+    :param cost_function: function to calculate the cost of a given solution
     :param size_returning_list: number of solution to return
     :return: the n better solution in a sorted list
     """
-
-    def custom_key(solution):
-        return calculate_cost(solution, matrix)
-
-    initial_population = sorted(initial_population, key=custom_key)
+    initial_population = sorted(initial_population, key=cost_function)
     return initial_population[:size_returning_list]
 
 
@@ -369,54 +365,52 @@ def cross_over(best, solutions):
     return new_pop
 
 
-def mutate(solutions, matrix):
+def mutate(solutions, cost_function):
     """
     Perform a random permutation on all the solutions
     :param solutions: list of all the solution
-    :param matrix: matrix of distance between the points
+    :param cost_function: function to calculate the cost of a given solution
     :return: a modified version of the received solution
     """
     new_solutions = []
     for solution in solutions:
-        cost = calculate_cost(solution, matrix)
+        cost = cost_function(solution)
         new_solution = random_exchange(solution)
-        new_cost = calculate_cost(new_solution, matrix)
+        new_cost = cost_function(new_solution)
         stop = 0
         while new_cost > cost and stop < 2:
             stop += 1
             new_solution = random_exchange(solution)
-            new_cost = calculate_cost(new_solution, matrix)
+            new_cost = cost_function(new_solution)
         if new_cost < cost:
             solution = new_solution
         new_solutions.append(solution)
     return new_solutions
 
 
-def genetic_algorithm(nb_points, matrix, pop_size):
+def genetic_algorithm(nb_points, cost_function, pop_size):
     """
     Perform a genetic algorithm with mutation, cross-over with survival type of selection
     :param nb_points: number of point in the solution
-    :param matrix: matrix of distance
+    :param cost_function: function to calculate the cost of a given solution
     :param pop_size: size of the population of solution
     :return: the best solution obtained
     """
-    population = []
-    for i in range(pop_size):
-        population.append(generate_random_solution(nb_points))
-    best_solution = find_best(population, matrix, 1)[0]
-    best_cost_ever = calculate_cost(best_solution, matrix)
+    population = [generate_random_solution(nb_points) for _ in range(pop_size)]
+    best_solution = find_best(population, cost_function, 1)[0]
+    best_cost_ever = cost_function(best_solution)
 
     repetition = 0
     i = 0
     while repetition < nb_points + 10:
-        best_pop = find_best(population, matrix, int(pop_size / 10))
+        best_pop = find_best(population, cost_function, int(pop_size / 10))
         cross_over_pop = cross_over(best_pop, population)
-        mutated_pop = mutate(population, matrix)
-        mutated_cross = mutate(cross_over_pop, matrix)
+        mutated_pop = mutate(population, cost_function)
+        mutated_cross = mutate(cross_over_pop, cost_function)
         population = population + cross_over_pop + mutated_pop + mutated_cross
-        population = find_best([list(point) for point in set(tuple(solution) for solution in population)], matrix,
-                               pop_size)
-        new_cost = calculate_cost(population[0], matrix)
+        population = find_best([list(point) for point in set(tuple(solution) for solution in population)],
+                               cost_function, pop_size)
+        new_cost = cost_function(population[0])
         if new_cost == best_cost_ever:
             repetition += 1
         else:
@@ -433,15 +427,126 @@ def genetic_algorithm(nb_points, matrix, pop_size):
     return best_solution
 
 
-def simple_search(solution, matrix):
+#
+# def cross_over(best, solutions):
+#     """
+#     Perform a mix between the bests solutions and all the solutions
+#     :param best: Group of the best solutions
+#     :param solutions: all the solutions
+#     :return: list of the new solutions
+#     """
+#     new_pop = []
+#     size_sol = len(solutions[0])
+#     # Take a solution as parent 2
+#     for parent2 in solutions:
+#         # Choose one of the best solution as parent 1
+#         parent1 = random.choice(best)
+#         while parent1 == parent2 and len(best) != 1:
+#             parent1 = random.choice(best)
+#
+#         # Choose interval for the cross-over
+#         start = random.randint(0, size_sol - 2)
+#         end = random.randint(start + 1, size_sol - 1)
+#
+#         child1 = [-1] * size_sol
+#         child2 = [-1] * size_sol
+#
+#         child1[start:end + 1] = parent1[start:end + 1]
+#         child2[start:end + 1] = parent2[start:end + 1]
+#         # Cross the 2 solution
+#         for i in range(len(parent2)):
+#             if parent2[i] not in child1:
+#                 j = 0
+#                 while child1[j] != -1:
+#                     j += 1
+#                 child1[j] = parent2[i]
+#
+#             if parent1[i] not in child2:
+#                 j = 0
+#                 while child2[j] != -1:
+#                     j += 1
+#                 child2[j] = parent1[i]
+#
+#         new_pop.append(child1)
+#         new_pop.append(child2)
+#
+#     return new_pop
+#
+#
+# def mutate(solutions, matrix):
+#     """
+#     Perform a random permutation on all the solutions
+#     :param solutions: list of all the solution
+#     :param matrix: matrix of distance between the points
+#     :return: a modified version of the received solution
+#     """
+#     new_solutions = []
+#     for solution in solutions:
+#         cost = calculate_cost(solution, matrix)
+#         new_solution = random_exchange(solution)
+#         new_cost = calculate_cost(new_solution, matrix)
+#         stop = 0
+#         while new_cost > cost and stop < 2:
+#             stop += 1
+#             new_solution = random_exchange(solution)
+#             new_cost = calculate_cost(new_solution, matrix)
+#         if new_cost < cost:
+#             solution = new_solution
+#         new_solutions.append(solution)
+#     return new_solutions
+#
+#
+# def genetic_algorithm(nb_points, matrix, pop_size):
+#     """
+#     Perform a genetic algorithm with mutation, cross-over with survival type of selection
+#     :param nb_points: number of point in the solution
+#     :param matrix: matrix of distance
+#     :param pop_size: size of the population of solution
+#     :return: the best solution obtained
+#     """
+#     population = []
+#     for i in range(pop_size):
+#         population.append(generate_random_solution(nb_points))
+#     best_solution = find_best(population, matrix, 1)[0]
+#     best_cost_ever = calculate_cost(best_solution, matrix)
+#
+#     repetition = 0
+#     i = 0
+#     while repetition < nb_points + 10:
+#         best_pop = find_best(population, matrix, int(pop_size / 10))
+#         cross_over_pop = cross_over(best_pop, population)
+#         mutated_pop = mutate(population, matrix)
+#         mutated_cross = mutate(cross_over_pop, matrix)
+#         population = population + cross_over_pop + mutated_pop + mutated_cross
+#         population = find_best([list(point) for point in set(tuple(solution) for solution in population)], matrix,
+#                                pop_size)
+#         new_cost = calculate_cost(population[0], matrix)
+#         if new_cost == best_cost_ever:
+#             repetition += 1
+#         else:
+#             repetition = 0
+#
+#         best_solution = population[0]
+#         best_cost_ever = new_cost
+#
+#         i += 1
+#         if i >= 50:
+#             i = 0
+#             print(best_cost_ever)
+#
+#     return best_solution
+
+
+# Generic Local Search Methods
+def simple_search(solution, cost_function):
     """
     Search using 2-exchange method with "best improvement" pivoting rule
     :param solution:
-    :param matrix: matrix of distance
-    :return: upgrade version of the input solution
+    :param cost_function: function to calculate the cost of a given solution
+    :return: upgraded version of the input solution
     """
     nb_points = len(solution)
-    best_cost = calculate_cost(solution, matrix)
+    best_cost = cost_function(solution)
     best_sol = solution
     for point in range(nb_points - 1):
         for second_point in range(point + 1, nb_points):
@@ -450,27 +555,27 @@ def simple_search(solution, matrix):
             part3 = solution[second_point + 1:]
 
             new_sol = part1 + part2[::-1] + part3
-            new_cost = calculate_cost(new_sol, matrix)
+            new_cost = cost_function(new_sol)
             if new_cost < best_cost:
                 best_sol = new_sol
                 best_cost = new_cost
     return best_sol
 
 
-def simple_local_search(solution, matrix):
+def simple_local_search(solution, cost_function):
     """
     Perform a simple search on a solution until no upgrade is found
     :param solution:
-    :param matrix: matrix of distance
+    :param cost_function: function to calculate the cost of a given solution
     :return: the best solution obtained
     """
-    solution_cost = calculate_cost(solution, matrix)
+    solution_cost = cost_function(solution)
     new_cost = 0
     i = 0
     while solution_cost != new_cost:
         solution_cost = new_cost
-        solution = simple_search(solution, matrix)
-        new_cost = calculate_cost(solution, matrix)
+        solution = simple_search(solution, cost_function)
+        new_cost = cost_function(solution)
 
         i += 1
         if i == 20:

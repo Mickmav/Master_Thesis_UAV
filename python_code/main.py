@@ -107,7 +107,7 @@ if __name__ == '__main__':
     point_generation = "systematic"  # "systematic" / "random"
 
     # This parameter is used to decide if the optimisation will be proceeded using the c++ or python functions
-    method = "cpp"
+    method = "python"
     # cpp / python / concorde / fast_tsp / tsp_solver2 / solve_tsp_simulated_annealing / solve_tsp_local_search
 
     earth_coord = False
@@ -329,8 +329,7 @@ if __name__ == '__main__':
             final_sol, distance = solve_tsp_local_search(dist_matrix)
 
     if problem == 0:
-        # TODO : add function for dubins resolution
-        final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation=0)
+        final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation)
         pass
 
     # Record the end time
