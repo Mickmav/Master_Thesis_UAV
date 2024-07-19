@@ -92,8 +92,8 @@ input_directory = "../configuration/"
 if __name__ == '__main__':
     #  --------------------- Retrieve inputs ---------------------------
 
-    manual_input, problem, choice_of_vertex, \
-    choice_of_obstacles, type_of_optimisation, radius, turning_radius = read_input()
+    manual_input, problem, choice_of_vertex, choice_of_obstacles, type_of_optimisation, radius, turning_radius =\
+        read_input()
 
     # Get the current date and time
     current_time = time.localtime()
@@ -142,18 +142,24 @@ if __name__ == '__main__':
             obstacles_coord = [convert_vertices_with_ref(obstacle, earth_vertices[0]) for obstacle in earth_obstacles]
 
         type_of_optimisation, radius = read_config(config_file)
-        if type_of_optimisation == 0 or type_of_optimisation == 1 or type_of_optimisation == 2:
-            method = "cpp"
-        elif type_of_optimisation == "concorde":
-            method = "concorde"
-        elif type_of_optimisation == "fast_tsp":
-            method = "fast_tsp"
-        elif type_of_optimisation == "tsp_solver2":
-            method = "tsp_solver2"
-        elif type_of_optimisation == "solve_tsp_simulated_annealing":
-            method = "solve_tsp_simulated_annealing"
-        elif type_of_optimisation == "solve_tsp_local_search":
-            method = "solve_tsp_local_search"
+        if problem == 1:
+            if type_of_optimisation == 0 or type_of_optimisation == 1 or type_of_optimisation == 2:
+                method = "cpp"
+            elif type_of_optimisation == "concorde":
+                method = "concorde"
+            elif type_of_optimisation == "fast_tsp":
+                method = "fast_tsp"
+            elif type_of_optimisation == "tsp_solver2":
+                method = "tsp_solver2"
+            elif type_of_optimisation == "solve_tsp_simulated_annealing":
+                method = "solve_tsp_simulated_annealing"
+            elif type_of_optimisation == "solve_tsp_local_search":
+                method = "solve_tsp_local_search"
+        if problem == 0:
+            if type_of_optimisation == 0 or type_of_optimisation == 1 or type_of_optimisation == 2:
+                method = "python"
+            elif type_of_optimisation == "tsp_to_dubins":
+                method = "tsp_to_dubins"
 
     elif manual_input == "y" or manual_input == "yes":
         input_error = 0
@@ -174,18 +180,18 @@ if __name__ == '__main__':
                   "0 some obstacles)")
         if type_of_optimisation == -5:
             input_error = 1
-            print("If the configuration is manual you have to select the algorithm you want to use (value between 0 "
-                  "and 5)"
-                  "\n 0 = SA / 1 = GA / 2 = SLS / 3 = concorde/ 4 = fast_tsp / 5 = tsp_solver2 / "
-                  "6 = solve_tsp_simulated_annealing/ 7 = solve_tsp_local_search")
+            print("If the configuration is manual you have to select the algorithm you want to use (values "
+                  "depend of the problem you want to solve):\n"
+                  "Problem = 1: 0 = SA / 1 = GA / 2 = SLS / 3 = concorde/4 = fast_tsp / 5 = tsp_solver2 / "
+                  "6 = solve_tsp_simulated_annealing / 7 = solve_tsp_local_search\n "
+                  "Problem = 0 : 0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins")
         if radius == -5:
             input_error = 1
             print("If the configuration is manual you have to select a coverage radius (value depend of the area you "
                   "choose)")
         if turning_radius == -5 and fixed_wings:
             input_error = 1
-            print("If the configuration is manual you have to select a coverage radius (value depend of the area you "
-                  "choose)")
+            print("If the configuration is manual you have to select a turning radius for your fixed-wings UAV")
 
         if not 0 <= problem <= 1:
             input_error = 1
@@ -342,8 +348,13 @@ if __name__ == '__main__':
             final_sol, distance = solve_tsp_local_search(dist_matrix)
 
     if problem == 0:
-        final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation)
-        pass
+        if method == "python" or method == "cpp":
+            final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation)
+        if method == "tsp_to_dubins":
+            final_sol = fast_tsp.find_tour(dist_matrix)
+            length, _ = compute_dubins_paths_and_length(points, final_sol, turning_radius)
+            print(length)
+            final_sol = optimise_dubins(final_sol, points, turning_radius, type_of_optimisation=2)
 
     # Record the end time
     optimisation_end_time = time.time()
