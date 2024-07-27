@@ -6,6 +6,7 @@
 
 using namespace std;
 
-std::vector<int> optimise(std::vector<int>& path, std::vector<std::vector<int>>& matrix, int type_of_optimisation);
+std::vector<int> optimise(std::vector<int>& path, std::vector<std::vector<int>>& matrix, std::vector<std::pair<double,
+ double>>& points, int type_of_optimisation, int turning_radius);
 
 #endif //UNTITLED_OPTMISE_H

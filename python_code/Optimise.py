@@ -6,18 +6,29 @@ import dubins
 import numpy as np
 
 
-def cpp_opti(path, matrix, type_of_optimisation, cpp_executable_path):
+def cpp_opti(path, matrix, type_of_optimisation, cpp_executable_path, points=None, turning_radius=0):
     """
     Apply a given cpp program to perform the optimisations functions more optimally
     :param path: a given starting solution
     :param matrix: a matrix of distance between the points
     :param type_of_optimisation: the type of optimisation need (0 = SA / 1 = GA / 2 = SLS)
     :param cpp_executable_path: path of the cpp compiled program
+    :param points:
+    :param turning_radius:
     :return: The final solution
     """
+    if points is None:
+        points = [[0, 0]]
+    else:
+        # Convert points to list if it's a numpy array
+        if isinstance(points, np.ndarray):
+            points = points.tolist()
+    if type_of_optimisation < 3:
+        turning_radius = 0
     # Prepare input data as a dictionary
     matrix = matrix.tolist()
-    input_data = {"list": path, "matrix": matrix, "type": type_of_optimisation}
+    input_data = {"list": path, "matrix": matrix, "type": type_of_optimisation, "points": points,
+                  "turning_radius": turning_radius}
 
     # Serialize the data to JSON
     input_json = json.dumps(input_data)
@@ -35,8 +46,6 @@ def cpp_opti(path, matrix, type_of_optimisation, cpp_executable_path):
         # Parse the output JSON from the C++ program
         output_data = json.loads(completed_process.stdout)
         output_list = output_data.get("output_list", [])
-
-        print("Received output list:", calculate_cost(output_list, matrix), output_list)
         return output_list
 
     except subprocess.CalledProcessError as e:
@@ -78,9 +87,9 @@ def compute_headings_2(points, order):
     headings = []
     size = len(order)
     for i in range(size):
-        p0 = points[order[(i - 1) % size]]
+        p0 = points[order[i - 1]] if i > 0 else points[order[-1]]
         p1 = points[order[i]]
-        p2 = points[order[(i + 1) % size]]
+        p2 = points[order[i + 1]] if i < size - 1 else points[order[0]]
 
         # Vectors from p0 to p1 and p1 to p2
         v1 = np.array([p1[0] - p0[0], p1[1] - p0[1]], dtype=np.float64)
@@ -131,7 +140,7 @@ def compute_dubins_paths_and_length(points, order, turning_radius):
 
         # Start and end configurations with computed headings
         start_point = (points[idx_start][0], points[idx_start][1], headings[i])
-        end_heading = headings[i + 1] if i + 1 < len(headings) else 0  # Use the next heading if available
+        end_heading = headings[i + 1] if i + 1 < len(headings) else headings[0]  # Use the next heading if available
         end_point = (points[idx_end][0], points[idx_end][1], end_heading)
 
         # Dubins path computation

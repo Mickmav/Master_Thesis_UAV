@@ -109,7 +109,7 @@ if __name__ == '__main__':
     point_generation = "systematic"  # "systematic" / "random"
 
     # This parameter is used to decide if the optimisation will be proceeded using the c++ or python functions
-    method = "python"
+    method = "cpp"
     # cpp / python / concorde / fast_tsp / tsp_solver2 / solve_tsp_simulated_annealing / solve_tsp_local_search
 
     earth_coord = False
@@ -157,7 +157,7 @@ if __name__ == '__main__':
                 method = "solve_tsp_local_search"
         if problem == 0:
             if type_of_optimisation == 0 or type_of_optimisation == 1 or type_of_optimisation == 2:
-                method = "python"
+                method = "cpp"
             elif type_of_optimisation == "tsp_to_dubins":
                 method = "tsp_to_dubins"
 
@@ -348,13 +348,17 @@ if __name__ == '__main__':
             final_sol, distance = solve_tsp_local_search(dist_matrix)
 
     if problem == 0:
-        if method == "python" or method == "cpp":
+        if method == "python":
             final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation)
+        if method == "cpp":
+            final_sol = cpp_opti(path, dist_matrix, type_of_optimisation + 3, cpp_executable_path,
+                                 points=points, turning_radius=turning_radius)
         if method == "tsp_to_dubins":
             final_sol = fast_tsp.find_tour(dist_matrix)
             length, _ = compute_dubins_paths_and_length(points, final_sol, turning_radius)
             print(length)
             final_sol = optimise_dubins(final_sol, points, turning_radius, type_of_optimisation=2)
+
 
     # Record the end time
     optimisation_end_time = time.time()

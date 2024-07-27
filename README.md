@@ -103,12 +103,20 @@ Follow the next steps to set up this project:
    ```
    If the project is not running when using the "concorde" method due to an error with the subprocess, you can try replacing the *concorde.py* file in
    your *pyconcorde/concorde* directory with the one present in the *resource* folder.
-3. Given that the project contain a c++ program you first need to compile it before using the python code,
+3. To install the "pydubins" library (see more info in this [link](https://github.com/AndrewWalker/pydubins/tree/master)),
+   run the following command in any of your directories (not especially this project).
+   ```
+   git clone https://github.com/AndrewWalker/pydubins
+   pip install .
+   ```
+   Error can occur during the installation due to lack of compatibility with python version >=3.9, you can therefore
+   follow the guidelines in the following [link](https://github.com/AndrewWalker/pydubins/issues/16#issuecomment-1779758323).
+4. Given that the project contain a c++ program you first need to compile it before using the python code,
    therefore clean up the compiled files (if needed):
     ```
     make clean -C ./cpp_optimisation
     ```
-4. Next, compile the C++ program:
+5. Next, compile the C++ program:
     ```
     make -C ./cpp_optimisation
     ```
