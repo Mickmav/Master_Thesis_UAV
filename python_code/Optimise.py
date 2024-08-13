@@ -558,7 +558,6 @@ def boustrophedon_path(polygon, vision_radius, turning_radius):
 def boustrophedon_solve(polygon, obstacle, vision_radius, turning_radius):
     """
     Solve the path planning problem using the boustrophedon method to cover the polygonal area while avoiding obstacles.
-
     :param polygon: List of points defining the polygonal area that needs to be covered.
     :param obstacle: List of points defining obstacles within the polygonal area.
     :param vision_radius: Distance ahead the vehicle can "see" or consider for its next move.

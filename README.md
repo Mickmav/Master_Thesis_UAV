@@ -1,17 +1,21 @@
 # Coverage of area using UAV
 
 ## Introduction
-The objective of this project was to establish an automatic method for covering area using UAVs with the best reduction
-in terms of travel distance and resource consumption.
-The solution proposed by the algorithms is based on the strategy to place the waypoints and optimise the
-UAV's path by employing a "TSP"-like resolution (Traveling Salesman Problem), where the objective is to establish a cycle
-path through all the waypoints while minimizing the total travel distance, resulting in an efficient area coverage.
-A study of the performances of the different algorithms was performed.
+Unmanned Aerial Vehicles (UAVs), or drones, have revolutionized various industries with their ability to efficiently
+navigate diverse terrains and access remote locations. Their precision and adaptability make them essential for 
+such as precision agriculture, infrastructure monitoring, and search and rescue operations.
+As the need for effective coverage of expansive areas with varying terrain grows, fixed-wing UAVs are increasingly
+preferred for their autonomy and efficiency in large-scale mapping and surveillance.
+However, their limited rotation capability poses challenges in navigating tight spaces and avoiding obstacles.
+
+Therefor we implemented 4 different method to solve the problem : Boustrophedon Method, Iterated Dubins Simulation Method,
+Heuristic for the Dubins Traveling Sells-man Problem (DTSP) and TSP Relaxation Methods.
+These methods aim to improve UAV mission capabilities by addressing the challenges of path planning in complex environments,
+enhancing the efficiency and effectiveness of autonomous aerial operations.
 
 This project comprises a Python application that serves as the main user interface and a C++ program that
 implements optimisation algorithms to achieve more efficient computations.
-The **[pyconcorde](https://github.com/jvkersch/pyconcorde)** was also used to allow even faster optimisation using
-state-of-the-art algorithm.
+The project use 
 
 The implemented solution demonstrates the effectiveness of strategic waypoint placement and optimisation techniques in
 minimizing travel distances during area coverage. By combining the versatility of Python with the efficiency of C++,
@@ -30,21 +34,32 @@ The method used in this project is as follows:
 5. Plot the solution and write it in the "results" directory.
 
 ## Algorithms
-Three different TSP resolution are implemented:
-1. Genetic algorithm: Create many random solutions and perform "cross-over" (merging all the solution with the best ones)
-   and mutation (random changes performed on all the solution) on them while at each step only keeping the best solution.
-   The algorithm stop when it converges on a solution (when for a certain number of iteration, no improving solution is found).
-2. Simple local search: Check all the possible 2-exchange modification and accept the best improving one until no improving step is found.
-   The 2-exchange is a local neighborhood where two elements in a sequence are swapped and the sequence between them is reversed,
-   to improve a solution.
-3. Simulated annealing: the algorithm start from an initial solution and perform random modification.
-   The algorithm always accepts the better solution and has a degressive probability to accept worsening solution.
+### Boustrophedon Method:
+The boustrophedon approach is used to solve path planning problems by covering polygonal areas while avoiding obstacles.
+It involves dividing the area into convex cells and generating a path that systematically covers these cells.
+The final path is optimized using Dubins paths to accommodate the UAV's turning radius,
+ensuring efficient coverage while navigating through obstacles.
 
-A possibility to use the concorde solver for the TSP is also present allowing faster and better quality solution.
-This solver comes from the **pyconcorde** library.
-This library is a Python wrapper around the Concorde TSP solver.
-It allows you to compute solutions to the Traveling Salesman Problem with just a few lines of Python code.
-It uses the state-of-the-art Concorde solver and provides a convenient Python layer around it.
+### Dubins Simulation Method:
+This method builds an iterative solution that is refined using a local search algorithm.
+Initially, the area is split into convex cells, and a Dubins vehicle simulation is performed to generate
+paths for each cell. These paths are then combined and optimized using a simple local search technique,
+resulting in a globally optimized trajectory that respects the UAV's turning constraints.
+
+### Heuristic Methods:
+Heuristic methods are essential for tackling optimization problems where exact solutions are impractical.
+These techniques leverage domain-specific knowledge and approximations to efficiently explore large search spaces
+and identify near-optimal solutions. This research employs three key heuristic approaches: Genetic Algorithms (GA),
+Simple Local Search (SLS), and Simulated Annealing (SA). Each method is tailored to address specific challenges in
+path planning for fixed-wing UAVs, incorporating Dubins cost evaluations to adapt to the UAV's movement constraints
+and enhance overall performance.
+
+### TSP Relaxation Method:
+The TSP Relaxation Method focuses on adapting traditional TSP solutions to the specific requirements of fixed-wing
+UAV operations. By starting with a TSP solution from a standard solver, this approach modifies the solution to
+accommodate the constraints of fixed-wing flight paths, such as turning radius and maneuverability limits.
+This relaxation strategy aims to provide a practical, sub-optimal solution that aligns with the UAV's operational
+constraints, making it a useful alternative to more rigid optimization techniques.
 
 ## Report
 
@@ -133,13 +148,23 @@ Follow the next steps to set up this project:
    a . **Manual** : Enter your inputs for the instance you want the algorithm to resolve
     - The polygon you want to cover, value between 0 and 5
     - The obstacles you want to use, 0 for some obstacles, -1 without obstacles
-    - The optimisation algorithm you want to use, 0 = SA / 1 = GA / 2 = SLS / 3 = concorde /
-      4 = fast_tsp / 5 = tsp_solver2 / 6 = solve_tsp_simulated_annealing / 7 = solve_tsp_local_search
+    - Problem nature of the problem to solve :
+      - Problem = 1 : for classical TSP resolution
+      - Problem = 0 : for resolution for fixed wings UAV
+    - The optimisation algorithm you want to use, 
+      - If problem = 1 : 0 = SA / 1 = GA / 2 = SLS / 3 = concorde /
+        4 = fast_tsp / 5 = tsp_solver2 / 6 = solve_tsp_simulated_annealing / 7 = solve_tsp_local_search
+      - If problem = 0 : 0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins / 4 = boustrophedon / 5 = simulation
     - The radius of the area covered by your UAV.
 
    Example :
+   - Multicopter:
    ```
-   python3 main.py --manual y --polygon 0 --obstacles -1 --algo 3 --radius 10
+   python3 main.py --manual y --problem 1 --polygon 0 --obstacles -1 --algo 3 --radius 10
+   ```
+   - Fixed-Wings:
+   ```
+   python3 main.py --manual y --problem 0 --turning_radius 10 --polygon 0 --obstacles -1 --algo 3 --radius 10
    ```
 b. **Automatic**: The program automatically read the files inside the configuration directory.
 - *polygon.csv* : containing a representation of the polygon in geodetic coordinates, using the format : lat, lon.
