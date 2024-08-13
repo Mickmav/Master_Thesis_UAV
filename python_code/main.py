@@ -14,8 +14,9 @@ from tsp_solver.greedy import solve_tsp
 from python_tsp.heuristics import solve_tsp_simulated_annealing
 from python_tsp.heuristics import solve_tsp_local_search
 
-from Optimise import optimise, cpp_opti, compute_dubins_paths_and_length, optimise_dubins
-from Utils import create_dist_matrix, generate_points_inside_polygon, compute_true_distance, read_vertices, \
+from Optimise import optimise, cpp_opti, compute_dubins_paths_and_length, optimise_dubins, boustrophedon_solve,\
+    dubins_simulation_solve
+from Utils import create_dist_matrix, initialize_points, initialize_solution, compute_true_distance, read_vertices, \
     read_config, create_grid, data_linewidth_plot, convert_vertices, convert_vertices_with_ref, \
     convert_relative_to_coordinates, create_pseudo_circle, read_many_vertices
 
@@ -64,7 +65,7 @@ def read_input():
                                                              "6 = solve_tsp_simulated_annealing /"
                                                              " 7 = solve_tsp_local_search"
                                                              "\n Problem = 0 : 0 = SA / 1 = GA / 2 = SLS /"
-                                                             " 3 = tsp_to_dubins")
+                                                             " 3 = tsp_to_dubins / 4 = boustrophedon / 5 = simulation")
 
     # This parameter impact the coverage radius of the UAV
     parser.add_argument("--radius", type=int, default=-5,
@@ -92,7 +93,7 @@ input_directory = "../configuration/"
 if __name__ == '__main__':
     #  --------------------- Retrieve inputs ---------------------------
 
-    manual_input, problem, choice_of_vertex, choice_of_obstacles, type_of_optimisation, radius, turning_radius =\
+    manual_input, problem, choice_of_vertex, choice_of_obstacles, type_of_optimisation, radius, turning_radius = \
         read_input()
 
     # Get the current date and time
@@ -110,7 +111,8 @@ if __name__ == '__main__':
 
     # This parameter is used to decide if the optimisation will be proceeded using the c++ or python functions
     method = "cpp"
-    # cpp / python / concorde / fast_tsp / tsp_solver2 / solve_tsp_simulated_annealing / solve_tsp_local_search
+    # cpp / python / concorde / fast_tsp / tsp_solver2 / solve_tsp_simulated_annealing / solve_tsp_local_search /
+    # tsp_to_dubins / 4 = boustrophedon / 5 = simulation
 
     earth_coord = False
     vertices = []
@@ -160,6 +162,10 @@ if __name__ == '__main__':
                 method = "cpp"
             elif type_of_optimisation == "tsp_to_dubins":
                 method = "tsp_to_dubins"
+            elif type_of_optimisation == "boustrophedon":
+                method = "boustrophedon"
+            elif type_of_optimisation == "simulation":
+                method = "simulation"
 
     elif manual_input == "y" or manual_input == "yes":
         input_error = 0
@@ -184,7 +190,7 @@ if __name__ == '__main__':
                   "depend of the problem you want to solve):\n"
                   "Problem = 1: 0 = SA / 1 = GA / 2 = SLS / 3 = concorde/4 = fast_tsp / 5 = tsp_solver2 / "
                   "6 = solve_tsp_simulated_annealing / 7 = solve_tsp_local_search\n "
-                  "Problem = 0 : 0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins")
+                  "Problem = 0 : 0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins / 4 = boustrophedon / 5 = simulation")
         if radius == -5:
             input_error = 1
             print("If the configuration is manual you have to select a coverage radius (value depend of the area you "
@@ -208,10 +214,11 @@ if __name__ == '__main__':
             print("optimisation algorithm:\n"
                   "Problem = 1: between 0 and 7  (0 = SA / 1 = GA / 2 = SLS / 3 = concorde / 4 = "
                   "fast_tsp / 5 = tsp_solver2 / 6 = solve_tsp_simulated_annealing/ 7 = solve_tsp_local_search)")
-        if not 0 <= type_of_optimisation <= 3 and problem == 1:
+        if not 0 <= type_of_optimisation <= 5 and problem == 1:
             input_error = 1
             print("optimisation algorithm:\n"
-                  "Problem = 0 : between 0 and 3 ((0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins)")
+                  "Problem = 0 : between 0 and 3 ((0 = SA / 1 = GA / 2 = SLS / 3 = tsp_to_dubins "
+                  "/ 4 = boustrophedon / 5 = simulation)")
             # TODO : don't forget to add new methods
         if radius <= 0:
             input_error = 1
@@ -242,6 +249,10 @@ if __name__ == '__main__':
         if problem == 0:
             if type_of_optimisation == 3:
                 method = "tsp_to_dubins"
+            if type_of_optimisation == 4:
+                method = "boustrophedon"
+            if type_of_optimisation == 5:
+                method = "simulation"
 
         # This parameter is used to let the program know which kind of coordinates it receive
         # True only if geodetic coordinates
@@ -300,6 +311,7 @@ if __name__ == '__main__':
     polygon = Polygon(vertices)
     penalty_on_obstacles = polygon.length * 10
     min_x, min_y, max_x, max_y = polygon.bounds
+    diameter = radius * 2
 
     polygone_obstacles = []
     for obstacle_coord in obstacles_coord:
@@ -307,23 +319,11 @@ if __name__ == '__main__':
 
     # ------------------ Begin initialization ---------------------------
 
-    print("Initialization of points...")
-    diameter = radius * 2
-    if point_generation == "random":
-        points = generate_points_inside_polygon(polygon, polygone_obstacles, int(diameter))
-    elif point_generation == "systematic":
-        points = create_grid(polygon, polygone_obstacles, int(diameter * 0.85))
-    else:
-        points = [[]]
-    nb_points = len(points)
-    print("There are ", nb_points, "points in the path")
-
-    print("Compute matrix of distance...")
-    dist_matrix = create_dist_matrix(nb_points, points, vertices, obstacles_coord, penalty_on_obstacles)
-
-    # initialize a starting solution for iterative improvement algorithm
-    path = [i for i in range(nb_points)]
-    final_sol = []
+    points, nb_points = initialize_points(radius, point_generation, polygon, polygone_obstacles)
+    path, final_sol = initialize_solution(nb_points)
+    dist_matrix = None
+    if problem == 1 or (method == "tsp_to_dubins" and problem == 0):
+        dist_matrix = create_dist_matrix(nb_points, points, vertices, obstacles_coord, penalty_on_obstacles)
 
     # --------------- Start the resolution of the problem -----------------
 
@@ -346,7 +346,7 @@ if __name__ == '__main__':
             final_sol, distance = solve_tsp_simulated_annealing(dist_matrix)
         elif method == "solve_tsp_local_search":
             final_sol, distance = solve_tsp_local_search(dist_matrix)
-
+    length = 0
     if problem == 0:
         if method == "python":
             final_sol = optimise_dubins(path, points, turning_radius, type_of_optimisation)
@@ -356,8 +356,13 @@ if __name__ == '__main__':
         if method == "tsp_to_dubins":
             final_sol = fast_tsp.find_tour(dist_matrix)
             length, _ = compute_dubins_paths_and_length(points, final_sol, turning_radius)
-            print(length)
+            print("Real distance before optimisation: ", length)
             final_sol = optimise_dubins(final_sol, points, turning_radius, type_of_optimisation=2)
+        if method == "boustrophedon":
+            length, final_sol = boustrophedon_solve(polygon, polygone_obstacles, radius, turning_radius)
+        if method == "simulation":
+            length, final_sol = dubins_simulation_solve(polygon, polygone_obstacles, radius, turning_radius,
+                                                        cpp_executable_path)
 
 
     # Record the end time
@@ -370,8 +375,11 @@ if __name__ == '__main__':
 
     # Represent final solution as a list of points
     true_sol = []
-    for i in final_sol:
-        true_sol.append(list(points[i]))
+    if method == "boustrophedon" or method == "simulation":
+        true_sol = final_sol
+    else:
+        for i in final_sol:
+            true_sol.append(list(points[i]))
     polygon2 = Polygon(true_sol)
     if problem == 1:
         print("Real distance : ", compute_true_distance(true_sol))
@@ -426,9 +434,13 @@ if __name__ == '__main__':
         with PdfPages(folder_path + "/" + "Dubins_Coverage.pdf") as pdf:
 
             # Compute Dubins paths and total length
-            Dubins_length, dubins_paths = compute_dubins_paths_and_length(points, final_sol, turning_radius)
+            if method == "boustrophedon" or method == "simulation":
+                dubins_paths = final_sol
+                dubins_length = length
+            else:
+                dubins_length, dubins_paths = compute_dubins_paths_and_length(points, final_sol, turning_radius)
 
-            print("Real Dubins distance : ", Dubins_length)
+            print("Real Dubins distance : ", dubins_length)
 
             x_dubins = []
             y_dubins = []
@@ -465,7 +477,7 @@ if __name__ == '__main__':
         print("Optimisation computation time : ", optimisation_elapsed_time, file=output_file)
         if problem == 0:
             print("Turning_radius : ", turning_radius, file=output_file)
-            print("Real Dubins distance : ", Dubins_length, file=output_file)
+            print("Real Dubins distance : ", dubins_length, file=output_file)
         if problem == 1:
             print("Real distance : ", compute_true_distance(true_sol), file=output_file)
         print("Total number of point to cover : ", nb_points, file=output_file)
@@ -480,7 +492,7 @@ if __name__ == '__main__':
         print("Total computation time : ", global_elapsed_time, file=output_file)
         print("Optimisation computation time : ", optimisation_elapsed_time, file=output_file)
         if problem == 0:
-            print("Real Dubins distance : ", Dubins_length, file=output_file)
+            print("Real Dubins distance : ", dubins_length, file=output_file)
         if problem == 1:
             print("Real distance : ", compute_true_distance(true_sol), file=output_file)
         print("Total number of point to cover : ", nb_points, file=output_file)
@@ -498,7 +510,7 @@ if __name__ == '__main__':
         print("Optimisation computation time : ", optimisation_elapsed_time, file=output_file)
         if problem == 0:
             print("Turning_radius : ", turning_radius, file=output_file)
-            print("Real Dubins distance : ", Dubins_length, file=output_file)
+            print("Real Dubins distance : ", dubins_length, file=output_file)
         if problem == 1:
             print("Real distance : ", compute_true_distance(true_sol), file=output_file)
         print("Total number of point to cover : ", nb_points, file=output_file)

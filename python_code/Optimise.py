@@ -4,6 +4,11 @@ import subprocess
 import json
 import dubins
 import numpy as np
+from shapely.geometry import Polygon, Point, LineString
+from shapely.ops import unary_union
+from copy import deepcopy
+
+from Utils import boustrophedon_cells
 
 
 def cpp_opti(path, matrix, type_of_optimisation, cpp_executable_path, points=None, turning_radius=0):
@@ -26,7 +31,10 @@ def cpp_opti(path, matrix, type_of_optimisation, cpp_executable_path, points=Non
     if type_of_optimisation < 3:
         turning_radius = 0
     # Prepare input data as a dictionary
-    matrix = matrix.tolist()
+    if matrix is None:
+        matrix = [[]]
+    else:
+        matrix = matrix.tolist()
     input_data = {"list": path, "matrix": matrix, "type": type_of_optimisation, "points": points,
                   "turning_radius": turning_radius}
 
@@ -118,6 +126,37 @@ def compute_headings_2(points, order):
     return headings
 
 
+def compute_total_dubins_path_length(points, order, turning_radius):
+    """
+    Optimized function to compute only the total length of the Dubins paths
+    :param points: the x,y positions of all the points
+    :param order: the order in which the points are crossed
+    :param turning_radius: the tuning radius
+    :return: length of the path
+    """
+    # Compute headings
+    headings = compute_headings_2(points, order)
+
+    total_length = 0.0
+
+    for i in range(len(order)):
+        idx_start = order[i]
+        idx_end = order[(i + 1) % len(order)]
+
+        # Start and end configurations with computed headings
+        start_point = (points[idx_start][0], points[idx_start][1], headings[i])
+        end_heading = headings[i + 1] if i + 1 < len(headings) else 0  # Use the next heading if available
+        end_point = (points[idx_end][0], points[idx_end][1], end_heading)
+
+        # Dubins path computation
+        path = dubins.shortest_path(start_point, end_point, turning_radius)
+        path_length = path.path_length()  # Get the length of the Dubins path
+
+        total_length += path_length
+
+    return total_length
+
+
 # Function to compute Dubins paths and their total length
 def compute_dubins_paths_and_length(points, order, turning_radius):
     """
@@ -152,37 +191,6 @@ def compute_dubins_paths_and_length(points, order, turning_radius):
         total_length += path_length
 
     return total_length, paths
-
-
-def compute_total_dubins_path_length(points, order, turning_radius):
-    """
-    Optimized function to compute only the total length of the Dubins paths
-    :param points: the x,y positions of all the points
-    :param order: the order in which the points are crossed
-    :param turning_radius: the tuning radius
-    :return: length of the path
-    """
-    # Compute headings
-    headings = compute_headings_2(points, order)
-
-    total_length = 0.0
-
-    for i in range(len(order)):
-        idx_start = order[i]
-        idx_end = order[(i + 1) % len(order)]
-
-        # Start and end configurations with computed headings
-        start_point = (points[idx_start][0], points[idx_start][1], headings[i])
-        end_heading = headings[i + 1] if i + 1 < len(headings) else 0  # Use the next heading if available
-        end_point = (points[idx_end][0], points[idx_end][1], end_heading)
-
-        # Dubins path computation
-        path = dubins.shortest_path(start_point, end_point, turning_radius)
-        path_length = path.path_length()  # Get the length of the Dubins path
-
-        total_length += path_length
-
-    return total_length
 
 
 def optimise_dubins(initial_solution, points, turning_radius, type_of_optimisation=0):
@@ -482,3 +490,370 @@ def simple_local_search(solution, cost_function):
             print(solution_cost, solution)
 
     return solution
+
+
+def adjust_line_segment(segment, turning_radius, direction):
+    """
+    Adjust the x-values of the segment endpoints based on the turning radius.
+    :param segment:
+    :param turning_radius:
+    :param direction:
+    :return:
+    """
+    adjusted_segment = []
+    if len(segment) >= 2:
+        p1, p2 = np.array(segment[0]), np.array(segment[-1])
+
+        if direction == 1:  # Line moving right
+            p1[0] += turning_radius
+            p2[0] -= turning_radius
+        else:  # Line moving left
+            p1[0] -= turning_radius
+            p2[0] += turning_radius
+
+        # Ensure the adjusted points are within bounds
+        adjusted_segment = [tuple(p1), tuple(p2)]
+    return adjusted_segment
+
+
+def boustrophedon_path(polygon, vision_radius, turning_radius):
+    """
+    Generate a boustrophedon path for covering the area within a polygon.
+    :param polygon: The polygonal area to cover, defined by its boundary.
+    :param vision_radius: Distance ahead the vehicle can "see" or consider for its next move.
+    :param turning_radius: Minimum turning radius of the vehicle.
+    :return: A list of points representing the boustrophedon path within the polygon.
+    """
+    minx, miny, maxx, maxy = polygon.bounds
+    path = []
+
+    y = miny + vision_radius  # Start from the first line inside the polygon
+    direction = 1  # 1 for right, -1 for left
+
+    while y <= maxy:  # Ensure the path stays within the turning radius of the top edge
+        if direction == 1:
+            x_coords = np.arange(minx, maxx + vision_radius * 2, vision_radius * 2)
+        else:
+            x_coords = np.arange(maxx, minx - vision_radius * 2, -vision_radius * 2)
+
+        line = LineString([(x, y) for x in x_coords])
+        intersected = polygon.intersection(line)
+
+        if isinstance(intersected, LineString):
+            coords = list(intersected.coords)
+            adjusted_coords = adjust_line_segment(coords, turning_radius, direction)
+            path.extend(adjusted_coords)
+        elif isinstance(intersected, unary_union.__class__):
+            for geom in intersected.geoms:
+                coords = list(geom.coords)
+                adjusted_coords = adjust_line_segment(coords, turning_radius, direction)
+                path.extend(adjusted_coords)
+
+        y += vision_radius * 2
+        direction *= -1
+
+    return path
+
+
+def boustrophedon_solve(polygon, obstacle, vision_radius, turning_radius):
+    """
+    Solve the path planning problem using the boustrophedon method to cover the polygonal area while avoiding obstacles.
+
+    :param polygon: List of points defining the polygonal area that needs to be covered.
+    :param obstacle: List of points defining obstacles within the polygonal area.
+    :param vision_radius: Distance ahead the vehicle can "see" or consider for its next move.
+    :param turning_radius: Minimum turning radius of the vehicle.
+    :return:  Length of the final solution and the solution itself
+    """
+    min_strip_height = vision_radius * 1.5
+    convex_polygons = boustrophedon_cells(polygon, obstacle, min_strip_height)
+
+    point_paths = []
+    for poly in convex_polygons:
+        point_path = boustrophedon_path(poly, vision_radius, turning_radius)
+        point_paths.append(point_path)
+
+    final_path = []
+    for path in point_paths:
+        for point in path:
+            final_path.append(point[:2])
+
+    length, final_path_optimised_dubins = compute_dubins_paths_and_length(final_path,
+                                                                          [i for i in range(len(final_path))],
+                                                                          turning_radius)
+    return length, final_path_optimised_dubins
+
+
+def generate_dubins_path(start, end, turning_radius):
+    """
+    Generate Dubins path between start and end points.
+    :param start:
+    :param end:
+    :param turning_radius:
+    :return:
+    """
+    q0 = (start[0], start[1], start[2])  # (x, y, theta)
+    q1 = (end[0], end[1], end[2])  # (x, y, theta)
+    path = dubins.shortest_path(q0, q1, turning_radius)
+    configurations, _ = path.sample_many(0.1)
+    if configurations:  # Ensure configurations is not empty
+        return np.array(configurations)[:, :3], path.path_length()  # Return configurations and path length
+    else:
+        return np.array([]), float('inf')  # Return an empty array and infinite length if configurations is empty
+
+
+def point_in_polygon(polygon, point):
+    """
+    Check if a point is in a specified polygon
+    :return:
+    """
+    return polygon.contains(Point(point[0], point[1]))
+
+
+def distance_point_to_segment(px, py, ax, ay, bx, by):
+    """
+    Compute the distance from point (px, py) to segment (ax, ay)-(bx, by).
+    :return:
+    """
+    seg_length = np.hypot(bx - ax, by - ay)
+    if seg_length == 0:
+        return np.hypot(px - ax, py - ay)
+    u = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / seg_length ** 2
+    u = max(0, min(1, u))
+    dx = ax + u * (bx - ax) - px
+    dy = ay + u * (by - ay) - py
+    return np.hypot(dx, dy)
+
+
+def find_initial_point(polygon, vision_radius):
+    """
+    Find the initial point inside the polygon near the edge.
+    :param polygon:
+    :param vision_radius:
+    :return:
+    """
+    min_x, min_y, max_x, max_y = polygon.bounds
+    for x in np.linspace(min_x + vision_radius, max_x - vision_radius, 100):
+        for y in np.linspace(min_y + vision_radius, max_y - vision_radius, 100):
+            point = np.array([x, y])
+            if point_in_polygon(polygon, point):
+                edge_point, direction = closest_edge_and_orientation(polygon, point)
+                distance_to_edge = np.linalg.norm(point - edge_point)
+                if distance_to_edge >= vision_radius:
+                    return point[0], point[1], direction
+    raise ValueError("Could not find a valid initial point inside the polygon.")
+
+
+def closest_edge_and_orientation(polygon, point):
+    """
+    Find the closest edge to the point and determine its inward orientation to the right.
+    :param polygon:
+    :param point:
+    :return:
+    """
+    min_distance = float('inf')
+    closest_edge = None
+    for i in range(len(polygon.exterior.coords) - 1):
+        (ax, ay), (bx, by) = polygon.exterior.coords[i], polygon.exterior.coords[i + 1]
+        dist = distance_point_to_segment(point[0], point[1], ax, ay, bx, by)
+        if dist < min_distance:
+            min_distance = dist
+            closest_edge = ((ax, ay), (bx, by))
+
+    if closest_edge:
+        (ax, ay), (bx, by) = closest_edge
+        edge_vector = np.array([bx - ax, by - ay])
+
+        # Calculate the normal vector
+        normal_vector = np.array([-edge_vector[1], edge_vector[0]])
+        normal_vector = normal_vector / np.linalg.norm(normal_vector)  # Normalize the vector
+
+        # Ensure normal vector points to the right of the point
+        right_point = np.array([point[0] + normal_vector[0], point[1] + normal_vector[1]])
+        if not polygon.contains(Point(right_point)):
+            normal_vector = -normal_vector
+
+        inward_direction = np.arctan2(normal_vector[1], normal_vector[0])
+        return np.array([ax, ay]), inward_direction
+
+    raise ValueError("No closest edge found.")
+
+
+def valid_new_point(polygon, new_point, vehicle_path, vision_radius, recent_path_points):
+    """
+   Check if a new point is valid: it must be inside the polygon and not too close to any other point in the path,
+   except the last point.
+   :param polygon: List of points defining the polygonal area within which the vehicle must navigate.
+   :param new_point: The new point to be validated as [x, y, theta].
+   :param vehicle_path: List of points representing the path the vehicle has taken so far.
+   :param vision_radius: Distance ahead the vehicle can "see" or consider for its next move.
+   :param recent_path_points: List of recent points in the vehicle's path to avoid backtracking.
+   :return: Boolean indicating whether the new point is valid.
+   """
+    if not point_in_polygon(polygon, new_point):
+        return False
+
+    new_point_arr = np.array(new_point[:2])
+
+    for path_point in recent_path_points:
+        path_point_arr = np.array(path_point[:2])
+        distance = np.linalg.norm(new_point_arr - path_point_arr)
+        if distance < 1.8 * vision_radius:
+            return False
+
+    return True
+
+
+def generate_next_point(polygon, current_point, vision_radius, turning_radius, vehicle_path, recent_path_points):
+    """
+        Generate the next point for the vehicle's path based on the current point, vision radius, turning radius,
+        and constraints imposed by the polygon and recent path points.
+        :param polygon: List of points defining the polygonal area within which the vehicle must navigate.
+        :param current_point: Current position and heading of the vehicle as [x, y, theta].
+        :param vision_radius: Distance ahead the vehicle can "see" or consider for its next move.
+        :param turning_radius: Minimum turning radius of the vehicle.
+        :param vehicle_path: List of points representing the path the vehicle has taken so far.
+        :param recent_path_points: List of recent points in the vehicle's path to avoid backtracking.
+        :return: Tuple containing the segment of the Dubins path and the next point as ([path_segment], [next_point]).
+        """
+    # Set the angle increment here
+    angle_increment = np.pi / 64  # 11.25 degrees increment
+
+    # Define the min and max angles
+    min_angle = -3 * np.pi / 8  # Minimum angle
+    # max_angle = 15 * np.pi / 16  # Maximum angle
+    max_angle = np.pi - angle_increment  # Maximum angle
+
+    # Define scaling bounds
+    max_scaling = 2.8 * turning_radius
+
+    # Calculate the current angle
+    current_angle = current_point[2]
+
+    # Calculate the number of directions based on the angle increment
+    num_directions = int((max_angle - min_angle) / angle_increment) + 1
+
+    # Generate the directions list
+    directions = [min_angle + i * angle_increment for i in range(num_directions)]  # Check within the specified range
+
+    for delta_angle in directions:
+        new_angle = current_angle + delta_angle
+
+        distance = max_scaling
+
+        # Compute the new point coordinates
+        next_x = current_point[0] + distance * np.cos(new_angle)
+        next_y = current_point[1] + distance * np.sin(new_angle)
+        next_point = [next_x, next_y, new_angle]
+
+        # Validate forward point
+        # if point_in_polygon(polygon, forward_point):
+        if valid_new_point(polygon, next_point, vehicle_path, vision_radius, recent_path_points):
+            # Calculate the next point
+
+            forward_x = current_point[0] + (distance + vision_radius) * np.cos(new_angle)
+            forward_y = current_point[1] + (distance + vision_radius) * np.sin(new_angle)
+            forward_point = [forward_x, forward_y, new_angle]
+
+            # Validate next point
+            if valid_new_point(polygon, forward_point, vehicle_path, vision_radius, recent_path_points):
+                # if point_in_polygon(polygon, next_point):
+                dubins_path_segment, _ = generate_dubins_path(current_point, next_point, turning_radius)
+                if len(dubins_path_segment) > 0:
+                    return dubins_path_segment, next_point
+
+    # Return empty if no valid path segment is found
+    return np.array([]), current_point
+
+
+def dubins_vehicle_simulation(polygon_coords, vision_radius, turning_radius, max_iterations=50000):
+    """
+    Perform an iterative construction of a solution build using a dubins vehicle simulation
+    :param polygon_coords:
+    :param vision_radius:
+    :param turning_radius:
+    :param max_iterations:
+    :return:
+    """
+    polygon = Polygon(polygon_coords)
+    vehicle_path = []
+
+    # Find the initial point and orientation
+    start = find_initial_point(polygon, vision_radius)
+    vehicle_path.append(start)
+
+    # Initialize the recent path points (simplified path)
+    recent_path_points = []
+    point_path = []
+
+    iterations = 0
+    while iterations < max_iterations:
+        dubins_path_segment, next_point = generate_next_point(polygon, vehicle_path[-1], vision_radius, turning_radius,
+                                                              vehicle_path, list(recent_path_points))
+        if len(dubins_path_segment) > 0:
+            recent_path_points = deepcopy(vehicle_path)
+            point_path.append(next_point)
+            vehicle_path.extend(dubins_path_segment)
+            # Corrected comparison: extract x and y only from the last points
+            if np.linalg.norm(vehicle_path[-1][:2] - np.array(recent_path_points[-1][:2])) < vision_radius * 0.5:
+                break  # Break if the vehicle is revisiting the same point
+        else:
+            break  # Stop if no valid next point is found
+        iterations += 1
+
+    while iterations < max_iterations:
+        # For 1 last point to ensure that the middle of the polygon is reached
+        dubins_path_segment, next_point = generate_next_point(polygon, vehicle_path[-1], vision_radius * 0.7,
+                                                              turning_radius,
+                                                              vehicle_path, list(recent_path_points))
+        if len(dubins_path_segment) > 0:
+            recent_path_points = deepcopy(vehicle_path)
+            point_path.append(next_point)
+            vehicle_path.extend(dubins_path_segment)
+        else:
+            break  # Stop if no valid next point is found
+        iterations += 1
+
+    return_path, _ = generate_dubins_path(vehicle_path[-1], vehicle_path[0], turning_radius)
+    vehicle_path.extend(return_path)
+
+    return np.array(vehicle_path), point_path
+
+
+def dubins_simulation_solve(polygon, obstacles, vision_radius, turning_radius, cpp_executable_path):
+    """
+    Method that build an iterative solution then optimise it using a simple local search
+    :param cpp_executable_path: for the simple local search performed on the iterative solution
+    :param polygon: area to cover
+    :param obstacles:
+    :param vision_radius:
+    :param turning_radius:
+    :return: length of the final solution and the solution itself
+    """
+    # Split area in convex cells
+    convex_polygons = boustrophedon_cells(polygon, obstacles, vision_radius * 2)
+
+    vehicle_paths = []
+    point_paths = []
+    # Perform iterative resolution on ach cell
+    for poly in convex_polygons:
+        vehicle_path, point_path = dubins_vehicle_simulation(poly, vision_radius, turning_radius)
+        vehicle_paths.append(vehicle_path)
+        point_paths.append(point_path)
+
+    final_path = []
+    for path in point_paths:
+        for point in path:
+            final_path.append(point[:2])
+
+    # Combine all path into a global optimised solution using simple local search
+    opti_path = cpp_opti([i for i in range(len(final_path))], np.full((1, 1), 0), 5, cpp_executable_path,
+                         points=final_path, turning_radius=turning_radius)
+
+    final_path_optimised = []
+    for index in opti_path:
+        final_path_optimised.append(final_path[index])
+
+    length, final_path_optimised_dubins = compute_dubins_paths_and_length(final_path, opti_path, turning_radius)
+
+    return length, final_path_optimised_dubins

@@ -4,9 +4,11 @@ import csv
 from math import sqrt
 import pyproj
 import numpy as np
-from matplotlib import pyplot as plt
 from numpy import full
-from shapely.geometry import Point
+from matplotlib import pyplot as plt
+
+from shapely.geometry import Point, Polygon, MultiPolygon, GeometryCollection, box
+from shapely.ops import unary_union
 
 # Create a Pyproj transformer for geodetic operations
 transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32633", always_xy=True)
@@ -264,6 +266,39 @@ def intersect(polygon, p1, p2):
     return False
 
 
+def initialize_points(radius, point_generation, polygon, polygone_obstacles):
+    """
+    Initialize different points inside a specified area
+    :param radius: vision radius that influence the distance between the points
+    :param point_generation: type of generation
+    :param polygon: area to cover
+    :param polygone_obstacles: obstacle to not cover
+    :return:
+    """
+    print("Initialization of points...")
+    diameter = radius * 2
+    if point_generation == "random":
+        points = generate_points_inside_polygon(polygon, polygone_obstacles, int(diameter))
+    elif point_generation == "systematic":
+        points = create_grid(polygon, polygone_obstacles, int(diameter * 0.85))
+    else:
+        points = [[]]
+    nb_points = len(points)
+    print("There are ", nb_points, "points in the path")
+    return points, nb_points
+
+
+def initialize_solution(nb_points):
+    """
+    Initialize a sequence of point
+    :param nb_points: size of the sequence
+    :return:
+    """
+    path = [i for i in range(nb_points)]
+    final_sol = []
+    return path, final_sol
+
+
 def create_dist_matrix(nb, points, polygone, obstacles, penalty_on_obstacles):
     """
     Create a matrix of distance between all the point and add penalties if the line between two point cross an obstacle
@@ -402,3 +437,156 @@ def create_grid(polygon, obstacles, resolution):
             if polygon.contains(point) and obstacle_free:
                 grid_points.append([x, y])
     return np.array(grid_points)
+
+
+def is_convex(polygon):
+    """
+    Check if a polygon is convex.
+    :param polygon:
+    :return boolean
+    """
+    points = list(polygon.exterior.coords[:-1])  # Exclude the repeated first/last point
+    if len(points) < 4:
+        return True  # Triangles are always convex
+
+    n = len(points)
+    sign = None
+    for i in range(n):
+        dx1 = points[(i + 1) % n][0] - points[i][0]
+        dy1 = points[(i + 1) % n][1] - points[i][1]
+        dx2 = points[(i + 2) % n][0] - points[(i + 1) % n][0]
+        dy2 = points[(i + 2) % n][1] - points[(i + 1) % n][1]
+        cross_product = dx1 * dy2 - dy1 * dx2
+        current_sign = cross_product > 0
+        if sign is None:
+            sign = current_sign
+        elif sign != current_sign:
+            return False
+    return True
+
+
+def find_critical_points(polygon, obstacles):
+    """
+    Find the critical points for Boustrophedon decomposition.
+
+    :param obstacles:
+    :return:
+    """
+    critical_points = list(polygon.exterior.coords)
+    for obstacle in obstacles:
+        critical_points.extend(list(obstacle.exterior.coords))
+    return critical_points
+
+
+def round_polygon_coords(polygon, precision=1):
+    return Polygon([(round(x, precision), round(y, precision)) for x, y in polygon.exterior.coords])
+
+
+def boustrophedon_decomposition(polygon, obstacles, min_strip_height):
+    """
+    Perform Boustrophedon Cell Decomposition on the given polygon.
+    :param polygon: The polygon to decompose.
+    :param obstacles(List[Polygon]): List of obstacles to subtract.
+    :param min_strip_height:  Minimum height of the decomposed cells.
+    :return: List[Polygon]: List of decomposed cells.
+    """
+
+    critical_points = find_critical_points(polygon, obstacles)
+    critical_points = [(round(x, 1), round(y, 1)) for x, y in critical_points]
+    critical_points = sorted(set(critical_points), key=lambda p: p[1])  # Sort by y-coordinate and remove duplicates
+
+    minx, miny, maxx, maxy = polygon.bounds
+    minx, miny, maxx, maxy = round(minx, 1), round(miny, 1), round(maxx, 1), round(maxy, 1)
+    cells = []
+
+    for i in range(len(critical_points) - 1):
+        y1 = critical_points[i][1]
+        y2 = critical_points[i + 1][1]
+
+        # Skip horizontal segments and strips smaller than min_strip_height
+        if y1 == y2 or (y2 - y1) < min_strip_height:
+            continue
+
+        strip = box(minx, y1, maxx, y2)
+        if strip.intersects(polygon):
+            intersection = strip.intersection(polygon)
+            if isinstance(intersection, (MultiPolygon, GeometryCollection)):
+                for poly in intersection.geoms:
+                    if isinstance(poly, Polygon):
+                        cells.append(round_polygon_coords(poly))  # Round coordinates here
+            elif isinstance(intersection, Polygon):
+                cells.append(round_polygon_coords(intersection))  # Round coordinates here
+
+    return cells
+
+
+def subtract_obstacles(cells, obstacles):
+    """
+    Subtract obstacles from each cell.
+    :param cells(List[Polygon]): List of cells to subtract obstacles from.
+    :param obstacles(List[Polygon]): List of obstacles to subtract.
+    :return: List[Polygon]: List of cells with obstacles subtracted.
+    """
+    result_cells = []
+    for cell in cells:
+        for obstacle in obstacles:
+            cell = cell.difference(obstacle)
+        if not cell.is_empty:
+            if isinstance(cell, (MultiPolygon, GeometryCollection)):
+                result_cells.extend([poly for poly in cell.geoms if isinstance(poly, Polygon)])
+            elif isinstance(cell, Polygon):
+                result_cells.append(cell)
+    return result_cells
+
+
+def merge_polygons(polygons):
+    """
+     Merge polygons if the result is convex. Iteratively try to merge every pair of polygons.
+    :param polygons(list of Polygon): List of polygons to be merged.
+    :return:  list of Polygon: The merged convex polygons and untouched original polygons.
+    """
+    if len(polygons) == 0:
+        raise ValueError("No polygons to merge.")
+
+    # Ensure all polygons are valid
+    for poly in polygons:
+        if not poly.is_valid:
+            raise ValueError("All input polygons must be valid.")
+
+    merged_polygons = []
+    merged = [False] * len(polygons)  # Keep track of which polygons have been merged
+
+    for i in range(len(polygons)):
+        if merged[i]:
+            continue
+        for j in range(i + 1, len(polygons)):
+            if merged[j]:
+                continue
+            # Attempt to merge polygons[i] and polygons[j]
+            potential_merge = unary_union([polygons[i], polygons[j]])
+            if potential_merge.geom_type == 'Polygon' and is_convex(potential_merge):
+                merged_polygons.append(potential_merge)
+                merged[i] = merged[j] = True
+                break  # Once merged, break to avoid further checks for polygons[i]
+        if not merged[i]:
+            # If polygons[i] was not merged, add it as is
+            merged_polygons.append(polygons[i])
+
+    return merged_polygons
+
+
+def boustrophedon_cells(polygon, obstacle_polygons, min_strip_height):
+    """
+    Generate convex cells in a polygon with obstacles inside
+    :param polygon: area to cover
+    :param obstacle_polygons:
+    :param min_strip_height: minimum height of sub areas
+    :return: list of polygons representing the new sub polygons
+    """
+    # Perform Boustrophedon Decomposition
+    cells = boustrophedon_decomposition(polygon, obstacle_polygons, min_strip_height)
+    # Subtract obstacles from the cells
+    cells_with_obstacles = subtract_obstacles(cells, obstacle_polygons)
+    cells_with_obstacles = merge_polygons(cells_with_obstacles)
+
+    return cells_with_obstacles
