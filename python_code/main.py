@@ -144,10 +144,7 @@ if __name__ == '__main__':
             obstacles_coord = [convert_vertices_with_ref(obstacle, earth_vertices[0]) for obstacle in earth_obstacles]
 
         problem, type_of_optimisation, radius, turning_radius = read_config(config_file)
-        if problem == "Multi-copter":
-            problem = 1
-        if problem == "Fixed-Wings":
-            problem = 0
+
         if problem == 1:
             if type_of_optimisation == 0 or type_of_optimisation == 1 or type_of_optimisation == 2:
                 method = "cpp"

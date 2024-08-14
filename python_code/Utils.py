@@ -113,41 +113,72 @@ def read_many_vertices(directory):
 
 
 def read_config(config_file):
+    coverage_radius = 0
+    turning_radius = 0
     # Create a configparser object
     config = configparser.ConfigParser()
     # Read the configuration file
     config.read(config_file)
 
     # Retrieve values from the configuration file
+    problem = config.get('UAVConfiguration', 'problem')
     optimization_algorithm = config.get('UAVConfiguration', 'optimization_algorithm')
 
     try:
-        coverage_radius = config.getint('UAVConfiguration', 'coverage_radius')
+        coverage_radius = config.getint('UAVConfiguration', 'Coverage_radius')
+        turning_radius = config.getint('UAVConfiguration', 'Turning_radius')
     except ValueError:
-        print("Coverage_radius must be a number in : ", config_file)
+        print("Coverage_radius and Turning_radius must be numbers in : ", config_file)
         exit(1)
 
     if coverage_radius <= 0:
-        print(" covergage_radius must be a positive integer in : ", config_file)
+        print(" Covergage_radius must be a positive integer in : ", config_file)
+        exit(1)
+    if turning_radius <= 0:
+        print(" Turning_radius must be a positive integer in : ", config_file)
         exit(1)
 
-    if optimization_algorithm == "simulated annealing":
-        optimization_algorithm = 0
-    elif optimization_algorithm == "genetic":
-        optimization_algorithm = 1
-    elif optimization_algorithm == "simple local search":
-        optimization_algorithm = 2
-    elif optimization_algorithm == "concorde" or optimization_algorithm == "fast_tsp" \
-            or optimization_algorithm == "tsp_solver2" or optimization_algorithm == "solve_tsp_simulated_annealing" \
-            or optimization_algorithm == "solve_tsp_local_search":
-        pass
+    if problem == "Multi-copter":
+        problem = 1
+    elif problem == "Fixed-Wings":
+        problem = 0
+
+    if problem == 1:
+        if optimization_algorithm == "simulated annealing":
+            optimization_algorithm = 0
+        elif optimization_algorithm == "genetic":
+            optimization_algorithm = 1
+        elif optimization_algorithm == "simple local search":
+            optimization_algorithm = 2
+        elif optimization_algorithm == "concorde" or optimization_algorithm == "fast_tsp" \
+                or optimization_algorithm == "tsp_solver2" or optimization_algorithm == "solve_tsp_simulated_annealing" \
+                or optimization_algorithm == "solve_tsp_local_search":
+            pass
+        else:
+            print("Wrong algorithm in config file, choice between : simulated annealing, genetic, simple local "
+                  "search, concorde, fast_tsp, tsp_solver2, solve_tsp_simulated_annealing, solve_tsp_local_search "
+                  "in : ", config_file)
+            exit(1)
+    elif problem == 0:
+        if optimization_algorithm == "simulated annealing":
+            optimization_algorithm = 0
+        elif optimization_algorithm == "genetic":
+            optimization_algorithm = 1
+        elif optimization_algorithm == "simple local search":
+            optimization_algorithm = 2
+        elif optimization_algorithm == "tsp_to_dubins" or optimization_algorithm == "boustrophedon" \
+                or optimization_algorithm == "simulation":
+            pass
+        else:
+            print("Wrong algorithm in config file, choice between : simulated annealing, genetic, simple local "
+                  "search, tsp_to_dubins, boustrophedon, simulation in : ", config_file)
+            exit(1)
     else:
-        print("Wrong algorithm in config file, choice between : simulated annealing, genetic, simple local "
-              "search, concorde, fast_tsp, tsp_solver2, solve_tsp_simulated_annealing, solve_tsp_local_search "
+        print("Wrong problem in config file, choice between : Multi-copter, Fixed-Wings "
               "in : ", config_file)
         exit(1)
 
-    return optimization_algorithm, coverage_radius
+    return problem, optimization_algorithm, coverage_radius, turning_radius
 
 
 def convert_relative_to_coordinates(ref_lat, ref_lon, relative_coordinates):
