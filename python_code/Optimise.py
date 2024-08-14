@@ -564,7 +564,7 @@ def boustrophedon_solve(polygon, obstacle, vision_radius, turning_radius):
     :param turning_radius: Minimum turning radius of the vehicle.
     :return:  Length of the final solution and the solution itself
     """
-    min_strip_height = vision_radius * 1.5
+    min_strip_height = vision_radius * 2
     convex_polygons = boustrophedon_cells(polygon, obstacle, min_strip_height)
 
     point_paths = []

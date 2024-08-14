@@ -14,7 +14,7 @@ from tsp_solver.greedy import solve_tsp
 from python_tsp.heuristics import solve_tsp_simulated_annealing
 from python_tsp.heuristics import solve_tsp_local_search
 
-from Optimise import optimise, cpp_opti, compute_dubins_paths_and_length, optimise_dubins, boustrophedon_solve,\
+from Optimise import optimise, cpp_opti, compute_dubins_paths_and_length, optimise_dubins, boustrophedon_solve, \
     dubins_simulation_solve
 from Utils import create_dist_matrix, initialize_points, initialize_solution, compute_true_distance, read_vertices, \
     read_config, create_grid, data_linewidth_plot, convert_vertices, convert_vertices_with_ref, \
@@ -143,7 +143,11 @@ if __name__ == '__main__':
         if earth_obstacles:
             obstacles_coord = [convert_vertices_with_ref(obstacle, earth_vertices[0]) for obstacle in earth_obstacles]
 
-        type_of_optimisation, radius = read_config(config_file)
+        problem, type_of_optimisation, radius, turning_radius = read_config(config_file)
+        if problem == "Multi-copter":
+            problem = 1
+        if problem == "Fixed-Wings":
+            problem = 0
         if problem == 1:
             if type_of_optimisation == 0 or type_of_optimisation == 1 or type_of_optimisation == 2:
                 method = "cpp"
@@ -299,7 +303,7 @@ if __name__ == '__main__':
         # Obstacles
         if choice_of_obstacles == 0:
             obstacles_coord = [[[175, 40], [175, 100], [250, 100], [250, 40]],
-                               [[100, 150], [100, 200], [150, 200], [150, 150]], [[120, 40], [120, 60], [140, 60]]]
+                               [[100, 150], [100, 200], [150, 200], [150, 150]]]  # , [[120, 40], [120, 60], [140, 60]]]
         elif choice_of_obstacles == -1:
             obstacles_coord = [[]]
 
@@ -355,6 +359,7 @@ if __name__ == '__main__':
                                  points=points, turning_radius=turning_radius)
         if method == "tsp_to_dubins":
             final_sol = fast_tsp.find_tour(dist_matrix)
+            # final_sol = solve_concorde(dist_matrix)
             length, _ = compute_dubins_paths_and_length(points, final_sol, turning_radius)
             print("Real distance before optimisation: ", length)
             final_sol = optimise_dubins(final_sol, points, turning_radius, type_of_optimisation=2)
@@ -363,7 +368,6 @@ if __name__ == '__main__':
         if method == "simulation":
             length, final_sol = dubins_simulation_solve(polygon, polygone_obstacles, radius, turning_radius,
                                                         cpp_executable_path)
-
 
     # Record the end time
     optimisation_end_time = time.time()
