@@ -7,6 +7,7 @@ import numpy as np
 from shapely.geometry import Polygon, Point, LineString
 from shapely.ops import unary_union
 from copy import deepcopy
+from itertools import permutations
 
 from Utils import boustrophedon_cells
 
@@ -555,6 +556,97 @@ def boustrophedon_path(polygon, vision_radius, turning_radius):
     return path
 
 
+def distance(p1, p2, polygon, obstacles):
+    """
+    Euclidean distance between two points with penalty for crossing obstacles or going outside the polygon.
+    :param p1: first point (x, y)
+    :param p2: second point (x, y)
+    :param polygon: List of points defining the polygonal area.
+    :param obstacles: List of lists of points defining obstacles within the polygonal area.
+    :return: Euclidean distance with penalty
+    """
+    line = LineString([p1, p2])
+    polygon_shape = Polygon(polygon)
+    obstacle_shapes = [Polygon(obstacle) for obstacle in obstacles]
+    all_obstacles = unary_union(obstacle_shapes)  # Merge all obstacles into a single shape
+
+    # Initialize penalty
+    penalty = 0
+
+    # Check if line goes outside the polygon
+    if not polygon_shape.contains(line):
+        # Calculate the intersection of the line with the polygon boundary
+        intersection_with_polygon = line.intersection(polygon_shape.exterior)
+        if intersection_with_polygon.is_empty:
+            intersection_with_polygon = line.intersection(polygon_shape)
+        if not intersection_with_polygon.is_empty:
+            intersection_length = 0
+            if intersection_with_polygon.geom_type == 'LineString':
+                intersection_length = intersection_with_polygon.length
+            elif intersection_with_polygon.geom_type == 'MultiLineString':
+                intersection_length = sum(line_segment.length for line_segment in intersection_with_polygon)
+            penalty += intersection_length * (polygon_shape.length / 2)
+
+    # Check if line intersects any obstacle
+    for obstacle in obstacles:
+        obstacle_shape = Polygon(obstacle)
+        intersection_with_obstacle = line.intersection(obstacle_shape.exterior)
+        if intersection_with_obstacle.is_empty:
+            intersection_with_obstacle = line.intersection(obstacle_shape)
+        if not intersection_with_obstacle.is_empty:
+            intersection_length = 0
+            if intersection_with_obstacle.geom_type == 'LineString':
+                intersection_length = intersection_with_obstacle.length
+            elif intersection_with_obstacle.geom_type == 'MultiLineString':
+                intersection_length = sum(line_segment.length for line_segment in intersection_with_obstacle)
+            penalty += intersection_length * (polygon_shape.length / 2)
+            break  # Break after the first obstacle intersection to avoid double penalty
+
+    euclidean_distance = ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
+    return euclidean_distance + penalty
+
+
+def tsp_order(points, polygon, obstacles):
+    """
+    Solves the TSP using a brute-force approach.
+    :param points: list of (x, y) positions
+    :return: optimal order of points for TSP
+    """
+    n = len(points)
+    min_distance = float('inf')
+    best_order = None
+
+    for order in permutations(range(n)):
+        current_distance = 0
+        for i in range(n):
+            current_distance += distance(points[order[i]], points[order[(i + 1) % n]], polygon, obstacles)
+        if current_distance < min_distance:
+            min_distance = current_distance
+            best_order = order
+
+    return best_order
+
+
+def aggregate_paths(point_paths, polygon, obstacles):
+    """
+    Aggregates subpaths into a single path in the optimal order.
+    :param point_paths: list of subpaths
+    :return: aggregated path
+    """
+    endpoints = [(path[0], path[-1]) for path in point_paths]
+    start_points = [point[0] for point in endpoints]
+    end_points = [point[1] for point in endpoints]
+
+    # Solve TSP for the start points
+    optimal_order = tsp_order(start_points, polygon, obstacles)
+
+    aggregated_path = []
+    for idx in optimal_order:
+        aggregated_path.extend(point_paths[idx])
+
+    return aggregated_path
+
+
 def boustrophedon_solve(polygon, obstacle, vision_radius, turning_radius):
     """
     Solve the path planning problem using the boustrophedon method to cover the polygonal area while avoiding obstacles.
@@ -572,14 +664,19 @@ def boustrophedon_solve(polygon, obstacle, vision_radius, turning_radius):
         point_path = boustrophedon_path(poly, vision_radius, turning_radius)
         point_paths.append(point_path)
 
-    final_path = []
-    for path in point_paths:
-        for point in path:
-            final_path.append(point[:2])
+    # final_path = []
+    # for path in point_paths:
+    #     for point in path:
+    #         final_path.append(point[:2])
+    #
+    # length, final_path_optimised_dubins = compute_dubins_paths_and_length(final_path,
+    #                                                                       [i for i in range(len(final_path))],
+    #                                                                       turning_radius)
+    aggregated_path = aggregate_paths(point_paths, polygon, obstacle)
+    order = list(range(len(aggregated_path)))
 
-    length, final_path_optimised_dubins = compute_dubins_paths_and_length(final_path,
-                                                                          [i for i in range(len(final_path))],
-                                                                          turning_radius)
+    length, final_path_optimised_dubins = compute_dubins_paths_and_length(aggregated_path, order, turning_radius)
+
     return length, final_path_optimised_dubins
 
 
@@ -844,19 +941,28 @@ def dubins_simulation_solve(polygon, obstacles, vision_radius, turning_radius, c
         vehicle_paths.append(vehicle_path)
         point_paths.append(point_path)
 
-    final_path = []
-    for path in point_paths:
-        for point in path:
-            final_path.append(point[:2])
+    # final_path = []
+    # for path in point_paths:
+    #     for point in path:
+    #         final_path.append(point[:2])
+
+    #
+
+    aggregated_path = aggregate_paths(point_paths, polygon, obstacles)
+    order = list(range(len(aggregated_path)))
 
     # Combine all path into a global optimised solution using simple local search
-    opti_path = cpp_opti([i for i in range(len(final_path))], np.full((1, 1), 0), 5, cpp_executable_path,
-                         points=final_path, turning_radius=turning_radius)
+    # opti_path = cpp_opti([i for i in range(len(final_path))], np.full((1, 1), 0), 5, cpp_executable_path,
+    #                      points=final_path, turning_radius=turning_radius)
+    opti_path = cpp_opti(order, np.full((1, 1), 0), 5, cpp_executable_path,
+                                               points=aggregated_path, turning_radius=turning_radius)
 
     final_path_optimised = []
     for index in opti_path:
-        final_path_optimised.append(final_path[index])
+        # final_path_optimised.append(final_path[index])
+        final_path_optimised.append(order[index])
 
-    length, final_path_optimised_dubins = compute_dubins_paths_and_length(final_path, opti_path, turning_radius)
+    # length, final_path_optimised_dubins = compute_dubins_paths_and_length(final_path, opti_path, turning_radius)
+    length, final_path_optimised_dubins = compute_dubins_paths_and_length(aggregated_path, opti_path, turning_radius)
 
     return length, final_path_optimised_dubins
