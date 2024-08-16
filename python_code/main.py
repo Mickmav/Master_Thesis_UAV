@@ -361,7 +361,7 @@ if __name__ == '__main__':
             print("Real distance before optimisation: ", length)
             # final_sol = optimise_dubins(final_sol, points, turning_radius, type_of_optimisation=2)
             final_sol = cpp_opti(final_sol, dist_matrix, 2 + 3, cpp_executable_path,
-                                 points=poinAts, turning_radius=turning_radius)
+                                 points=points, turning_radius=turning_radius)
         if method == "boustrophedon":
             length, final_sol = boustrophedon_solve(polygon, polygone_obstacles, radius, turning_radius)
         if method == "simulation":
