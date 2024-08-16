@@ -63,7 +63,7 @@ constraints, making it a useful alternative to more rigid optimization technique
 
 ## Report
 
-A report of the project containing a benchmark and analysis of the different algorithms can be found in the "UAV_report.pdf" document.
+A report of the project containing a benchmark and analysis of the different algorithms can be found in the "Master_Thesis_Fixed_Wings_UAV_Mavros_Mickail.pdf" document.
 
 ## Folder Structure
 
