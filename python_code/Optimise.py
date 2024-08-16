@@ -636,39 +636,43 @@ def find_initial_point(polygon, vision_radius):
         for y in np.linspace(min_y + vision_radius, max_y - vision_radius, 100):
             point = np.array([x, y])
             if point_in_polygon(polygon, point):
-                edge_point, direction = closest_edge_and_orientation(polygon, point)
+                edge_point, direction = closest_edge_and_orientation(polygon, point, vision_radius)
                 distance_to_edge = np.linalg.norm(point - edge_point)
                 if distance_to_edge >= vision_radius:
                     return point[0], point[1], direction
     raise ValueError("Could not find a valid initial point inside the polygon.")
 
 
-def closest_edge_and_orientation(polygon, point):
-    """
-    Find the closest edge to the point and determine its inward orientation to the right.
-    :param polygon:
-    :param point:
-    :return:
-    """
+def closest_edge_and_orientation(polygon, point, vision_radius):
+    """Find the closest edge to the point and determine its inward orientation to the right."""
     min_distance = float('inf')
     closest_edge = None
+    bottom_edge = None
+
     for i in range(len(polygon.exterior.coords) - 1):
         (ax, ay), (bx, by) = polygon.exterior.coords[i], polygon.exterior.coords[i + 1]
+        if ay == by and ay < min(point[1], polygon.centroid.y):
+            bottom_edge = ((ax, ay), (bx, by))
         dist = distance_point_to_segment(point[0], point[1], ax, ay, bx, by)
         if dist < min_distance:
             min_distance = dist
             closest_edge = ((ax, ay), (bx, by))
 
+    if bottom_edge:
+        closest_edge = bottom_edge
+
     if closest_edge:
         (ax, ay), (bx, by) = closest_edge
         edge_vector = np.array([bx - ax, by - ay])
+        edge_direction = np.arctan2(edge_vector[1], edge_vector[0])
 
         # Calculate the normal vector
         normal_vector = np.array([-edge_vector[1], edge_vector[0]])
         normal_vector = normal_vector / np.linalg.norm(normal_vector)  # Normalize the vector
 
         # Ensure normal vector points to the right of the point
-        right_point = np.array([point[0] + normal_vector[0], point[1] + normal_vector[1]])
+        right_point = np.array([point[0] + normal_vector[0] * vision_radius * 1.5,
+                                point[1] + normal_vector[1] * vision_radius * 1.5])
         if not polygon.contains(Point(right_point)):
             normal_vector = -normal_vector
 
