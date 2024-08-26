@@ -130,7 +130,7 @@ if __name__ == '__main__':
         if not os.path.exists(config_file):
             print("File missing : " + config_file)
             exit(1)
-        if not os.path.exists(polygon_file):
+        if not os.path.exists(obstacles_directory):
             print("File missing : " + obstacles_directory)
             exit(1)
 
