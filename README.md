@@ -160,11 +160,11 @@ Follow the next steps to set up this project:
    Example :
    - Multicopter:
    ```
-   python3 main.py --manual y --problem 1 --polygon 0 --obstacles -1 --algo 3 --radius 10
+   python3 main.py --manual y --problem 1 --polygon 0 --obstacles -1 --algo 4 --radius 10
    ```
    - Fixed-Wings:
    ```
-   python3 main.py --manual y --problem 0 --turning_radius 5 --polygon 0 --obstacles -1 --algo 3 --radius 10
+   python3 main.py --manual y --problem 0 --turning_radius 10 --polygon 0 --obstacles -1 --algo 3 --radius 20
    ```
 b. **Automatic**: The program automatically read the files inside the configuration directory.
 - *polygon.csv* : containing a representation of the polygon in geodetic coordinates, using the format : lat, lon.
